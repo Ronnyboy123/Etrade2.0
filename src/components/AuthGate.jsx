@@ -7,10 +7,10 @@ function AuthFrame({ children }) {
   return (
     <div className="auth-screen">
       <div className="auth-brand-panel">
-        <div className="auth-brand-mark">ST</div>
+        <div className="auth-brand-mark">RL</div>
         <div>
-          <div className="auth-eyebrow">CUSTOMS BROKERAGE OPERATIONS</div>
-          <h1>Shipment Timeline</h1>
+          <div className="auth-eyebrow">SHIPMENT & CUSTOMS OPERATIONS</div>
+          <h1>Relora</h1>
           <p>Secure team workspaces, shipment monitoring, and management reporting in one place.</p>
         </div>
         <div className="auth-security-note"><ShieldCheck size={17} /> Access is restricted to approved company users.</div>

@@ -227,7 +227,7 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div><div className="brand">SHIPMENT TIMELINE</div><div className="subtitle">Customs Brokerage Operations</div></div>
+        <div><div className="brand">RELORA</div><div className="subtitle">Shipment & Customs Operations</div></div>
         <div className="topbar-actions">
           <div className="user-pill">
             <strong>{currentUser.name}</strong>

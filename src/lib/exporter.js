@@ -158,7 +158,7 @@ export async function downloadRowsAsExcel(
   const ExcelJS = module.default || module;
   const spec = buildFormattedExportSpec(rows, fields, columnMeta, options.sheetName || 'Shipments');
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Shipment Timeline';
+  workbook.creator = 'Relora';
   workbook.created = new Date();
 
   const worksheet = workbook.addWorksheet(spec.sheetName);

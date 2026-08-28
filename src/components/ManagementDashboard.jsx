@@ -31,7 +31,7 @@ export default function ManagementDashboard({ rows, onKpiClick }) {
   return (
     <section className="dashboard">
       <div className="report-title-row">
-        <h1>SHIPMENT TIMELINE – FINAL MANAGEMENT REPORT</h1>
+        <h1>RELORA – FINAL MANAGEMENT REPORT</h1>
         <span>LIVE DATA</span>
       </div>
 
