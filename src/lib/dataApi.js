@@ -97,13 +97,16 @@ export function normalizeDateValue(value, row = {}) {
   const named = text.match(/^(\d{1,2})[-\s]([A-Za-z]{3,4})(?:[-\s](\d{2}|\d{4}))?$/);
   if (named) {
     const month = MONTHS.get(named[2].toLowerCase());
-    if (!month) return text;
+    if (!month) return null;
     let year = named[3] ? Number(named[3]) : inferredYear(row);
     if (year < 100) year += year >= 70 ? 1900 : 2000;
-    return formatCalendarDate(year, month, Number(named[1])) || text;
+    return formatCalendarDate(year, month, Number(named[1]));
   }
 
-  return text;
+  // Never pass unrecognized text to PostgreSQL date columns.
+  // Spreadsheet placeholders/typos are treated as an empty date instead of
+  // failing the entire import with invalid input syntax for type date.
+  return null;
 }
 
 function numericValue(value) {

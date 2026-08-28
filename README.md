@@ -236,3 +236,9 @@ Excel placeholders such as `N/A`, `NA`, `N.A.`, `NONE`, `Not Applicable`, `-`, a
 - Excel/CSV import persistence now uses one atomic Supabase upsert batch keyed by `shipment_code`.
 - Retrying the same file after a previous failed sync updates already-created shipment codes instead of violating the unique constraint.
 - The whole batch succeeds or fails together, preventing new partial imports from leaving only part of the file saved.
+
+## v8.5 date import hardening
+
+- Spreadsheet placeholders such as `.`, `..`, `...`, `TBA`, `TBD`, `NIL`, `N/A`, blanks, and dashes are stored as empty dates instead of being sent to PostgreSQL date columns.
+- Unrecognized or malformed date text is normalized to `null` at the Supabase serialization boundary, preventing a single bad spreadsheet date from crashing the entire import.
+- Valid Excel Date objects and supported date strings continue to normalize to `YYYY-MM-DD`.

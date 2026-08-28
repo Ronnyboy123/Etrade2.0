@@ -5,7 +5,13 @@ const EMPTY_PLACEHOLDERS = new Set([
   'NONE',
   'NOT APPLICABLE',
   '-',
-  '—'
+  '—',
+  '.',
+  '..',
+  '...',
+  'TBA',
+  'TBD',
+  'NIL'
 ]);
 
 export function isBlankLike(value) {
