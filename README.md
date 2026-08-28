@@ -225,3 +225,14 @@ npm run build
 ## v8.1 date import fix
 
 Excel date cells are now read as real dates instead of display-formatted text such as `1-Jul`. Before saving to Supabase, all recognized date fields are normalized to PostgreSQL-safe `YYYY-MM-DD` values. Short `d-mmm` text dates use the shipment service month to infer the year when needed.
+
+## v8.3 date-placeholder fix
+
+Excel placeholders such as `N/A`, `NA`, `N.A.`, `NONE`, `Not Applicable`, `-`, and `—` are treated as empty only when they are used in date-driven workflow fields. This prevents PostgreSQL/Supabase date errors and prevents placeholder text from incorrectly advancing Current Stage or BOC Status.
+
+
+## v8.4 import retry safety
+
+- Excel/CSV import persistence now uses one atomic Supabase upsert batch keyed by `shipment_code`.
+- Retrying the same file after a previous failed sync updates already-created shipment codes instead of violating the unique constraint.
+- The whole batch succeeds or fails together, preventing new partial imports from leaving only part of the file saved.

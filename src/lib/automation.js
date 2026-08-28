@@ -1,7 +1,9 @@
+import { isBlankLike } from './valueSemantics.js';
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function hasValue(value) {
-  return value !== undefined && value !== null && String(value).trim() !== '';
+  return !isBlankLike(value);
 }
 
 function parseDateOnly(value) {

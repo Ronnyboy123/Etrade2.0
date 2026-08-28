@@ -1,4 +1,5 @@
 import { profileToAppUser } from './auth.js';
+import { isBlankLike } from './valueSemantics.js';
 
 const CUSTOM_PREFIX = 'custom__';
 
@@ -73,8 +74,8 @@ const MONTHS = new Map([
 ]);
 
 export function normalizeDateValue(value, row = {}) {
-  const normalized = blankToNull(value);
-  if (normalized === null) return null;
+  if (isBlankLike(value)) return null;
+  const normalized = value;
 
   if (normalized instanceof Date) {
     if (Number.isNaN(normalized.getTime())) return null;
@@ -192,7 +193,7 @@ export async function updateShipment(row, changedField, currentUser) {
   if (currentUser?.role === 'portal') {
     const { error } = await client.rpc('update_portal_fields', {
       p_shipment_id: row.id,
-      p_portal_submission: blankToNull(row.portal_submission),
+      p_portal_submission: normalizeDateValue(row.portal_submission, row),
       p_broker_representative: row.broker_representative || null,
       p_portal_ticket_efile: row.portal_ticket_efile || null
     });
@@ -216,12 +217,33 @@ export async function deleteShipments(ids) {
   if (error) throw error;
 }
 
+export function prepareImportPayloads(changes) {
+  return (changes || [])
+    .filter((change) => change && change.type !== 'conflict' && change.row)
+    .map((change) => serializeShipmentRow(change.row));
+}
+
 export async function persistImportChanges(changes, currentUser) {
-  const persisted = [];
-  for (const change of changes || []) {
-    if (change.type === 'conflict') continue;
-    if (change.type === 'create') persisted.push(await insertShipment(change.row));
-    if (change.type === 'update') persisted.push(await updateShipment(change.row, '', currentUser));
+  const client = await requireSupabase();
+  const payloads = prepareImportPayloads(changes);
+  if (!payloads.length) return [];
+
+  // Imports are intentionally persisted as one idempotent batch. If an earlier
+  // attempt partially succeeded before the browser saw an error, retrying the
+  // same file updates the rows with the same shipment_code instead of trying
+  // to insert duplicates. A single upsert statement is also atomic at the
+  // database level: the whole batch succeeds or the whole batch fails.
+  const { data, error } = await client
+    .from('shipments')
+    .upsert(payloads, { onConflict: 'shipment_code' })
+    .select('*');
+
+  if (error) {
+    if (error.code === '23505' || /duplicate key value/i.test(error.message || '')) {
+      throw new Error('A shipment with the same unique shipment code already exists. Refresh the data and retry the import.');
+    }
+    throw error;
   }
-  return persisted;
+
+  return (data || []).map(flattenShipmentRow);
 }
