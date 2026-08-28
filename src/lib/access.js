@@ -85,3 +85,19 @@ export function canImportRows(user) {
 export function canAddRows(user) {
   return canImportRows(user);
 }
+
+export function canViewActivity(user) {
+  return Boolean(user && ['team_lead', 'manager', 'admin'].includes(user.role));
+}
+
+export function canArchiveRows(user) {
+  return Boolean(user && ['team_lead', 'manager', 'admin'].includes(user.role));
+}
+
+export function canRestoreRows(user) {
+  return canArchiveRows(user);
+}
+
+export function canPermanentlyDeleteRows(user) {
+  return Boolean(user && user.role === 'admin');
+}

@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Download, Plus, Trash2, Upload } from 'lucide-react';
+import { Archive, ArrowLeft, Download, Plus, Upload } from 'lucide-react';
 import ImportShipmentModal from './ImportShipmentModal';
 import ShipmentGrid from './ShipmentGrid';
-import { deleteRowsByIds } from '../lib/selection.js';
-import { canAddRows, canDeleteRows, canImportRows } from '../lib/access.js';
+import { canAddRows, canArchiveRows, canImportRows } from '../lib/access.js';
 import { AUTOMATED_FIELDS } from '../lib/importer.js';
 import { downloadRowsAsExcel } from '../lib/exporter.js';
 
@@ -34,13 +33,16 @@ export default function WorkspaceView({
   currentUser,
   onRowChanged,
   onDeleteRows,
+  onArchiveRows,
+  onEditingChange,
+  onOpenActivity,
   suppressCreateActions = false
 }) {
   const [showImport, setShowImport] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [displayedIds, setDisplayedIds] = useState(rows.map((row) => row.id));
 
-  const allowDelete = canDeleteRows(currentUser);
+  const allowArchive = canArchiveRows(currentUser);
   const allowImport = !suppressCreateActions && canImportRows(currentUser);
   const allowAdd = !suppressCreateActions && canAddRows(currentUser);
 
@@ -58,17 +60,21 @@ export default function WorkspaceView({
   const delayed = rows.filter((row) => row.overall_status === 'DELAYED').length;
   const closed = rows.filter((row) => row.overall_status === 'CLOSED').length;
 
-  async function deleteSelected() {
-    if (!selectedIds.length || !allowDelete) return;
+  async function archiveSelected() {
+    if (!selectedIds.length || !allowArchive) return;
     const count = selectedIds.length;
-    const confirmed = window.confirm(`Delete ${count} selected shipment${count === 1 ? '' : 's'}? This cannot be undone.`);
+    const confirmed = window.confirm(`Archive ${count} selected shipment${count === 1 ? '' : 's'}? You can restore archived shipments later.`);
     if (!confirmed) return;
     try {
-      if (onDeleteRows) await onDeleteRows(selectedIds);
-      else setRows((old) => deleteRowsByIds(old, selectedIds));
+      const archiveAction = onArchiveRows || onDeleteRows;
+      if (archiveAction) await archiveAction(selectedIds);
+      else {
+        const archived = new Set(selectedIds);
+        setRows((old) => old.filter((row) => !archived.has(row.id)));
+      }
       setSelectedIds([]);
     } catch (error) {
-      window.alert(error?.message || 'Unable to delete the selected shipment(s).');
+      window.alert(error?.message || 'Unable to archive the selected shipment(s).');
     }
   }
 
@@ -96,10 +102,10 @@ export default function WorkspaceView({
         <div className="actions">
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search columns or shipments..." />
           {searchTargetField && <span className="column-jump-pill">Column: {searchTargetLabel}</span>}
-          {selectedIds.length > 0 && allowDelete && (
+          {selectedIds.length > 0 && allowArchive && (
             <>
               <span className="selected-count">{selectedIds.length} selected</span>
-              <button className="danger" onClick={deleteSelected}><Trash2 size={16} /> Delete Selected</button>
+              <button className="danger" onClick={archiveSelected}><Archive size={16} /> Archive Selected</button>
             </>
           )}
           <button className="download-button" onClick={downloadCurrentView}><Download size={16} /> Download Excel</button>
@@ -126,10 +132,12 @@ export default function WorkspaceView({
         currentUser={currentUser}
         selectedIds={selectedIds}
         setSelectedIds={setSelectedIds}
-        allowSelection={allowDelete}
+        allowSelection={allowArchive}
         searchTargetField={searchTargetField}
         onDisplayedIdsChange={setDisplayedIds}
         onRowChanged={onRowChanged}
+        onEditingChange={onEditingChange}
+        onOpenActivity={onOpenActivity}
       />
 
       {showImport && allowImport && (

@@ -10,7 +10,7 @@ import {
   toggleSelectedId
 } from '../lib/selection.js';
 import { applyAutomation } from '../lib/automation.js';
-import { canEditField } from '../lib/access.js';
+import { canEditField, canViewActivity } from '../lib/access.js';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -127,9 +127,12 @@ export default function ShipmentGrid({
   setSelectedIds,
   allowSelection = true,
   onDisplayedIdsChange,
-  onRowChanged
+  onRowChanged,
+  onEditingChange,
+  onOpenActivity
 }) {
   const gridApiRef = useRef(null);
+  const editContextRef = useRef(new Map());
   const [gridReadyVersion, setGridReadyVersion] = useState(0);
   const [displayedIds, setDisplayedIds] = useState(rows.map((row) => row.id));
 
@@ -193,6 +196,26 @@ export default function ShipmentGrid({
       });
     }
 
+    if (canViewActivity(currentUser) && onOpenActivity) {
+      leading.push({
+        colId: 'historyAction',
+        headerName: 'History',
+        editable: false,
+        sortable: false,
+        filter: false,
+        resizable: false,
+        pinned: 'left',
+        lockPinned: true,
+        suppressMovable: true,
+        width: 88,
+        minWidth: 88,
+        maxWidth: 88,
+        cellRenderer: (params) => (
+          <button className="grid-history-button" onClick={() => onOpenActivity(params.data)}>History</button>
+        )
+      });
+    }
+
     leading.push({
       colId: 'rowNumber',
       headerName: '#',
@@ -217,7 +240,7 @@ export default function ShipmentGrid({
       automated,
       ...segments.map((segment, index) => makeGroup(segment.group, segment.fields, importMeta, currentUser, String(index)))
     ];
-  }, [importMeta, layout, currentUser, allowSelection, selectedIds, displayedIds, selectionState.checked, selectionState.indeterminate]);
+  }, [importMeta, layout, currentUser, allowSelection, selectedIds, displayedIds, selectionState.checked, selectionState.indeterminate, onOpenActivity]);
 
   const defaultColDef = useMemo(() => ({
     editable: true,
@@ -241,24 +264,58 @@ export default function ShipmentGrid({
     }
   }, [searchTargetField, gridReadyVersion]);
 
+  function editKey(rowId, field) {
+    return `${rowId || ''}:${field || ''}`;
+  }
+
+  function handleCellEditingStarted(event) {
+    const field = event.colDef?.field || '';
+    const editContext = {
+      rowId: event.data?.id,
+      field,
+      baseValue: event.value,
+      baseVersion: Number(event.data?.version ?? 1)
+    };
+    editContextRef.current.set(editKey(editContext.rowId, field), editContext);
+    onEditingChange?.(editContext);
+  }
+
+  function handleCellEditingStopped(event) {
+    onEditingChange?.(null);
+    const key = editKey(event.data?.id, event.colDef?.field || '');
+    setTimeout(() => editContextRef.current.delete(key), 0);
+  }
+
   async function onCellValueChanged(event) {
-    const previous = rows.find((row) => row.id === event.data?.id);
+    const field = event.colDef?.field || '';
+    const found = rows.find((row) => row.id === event.data?.id);
+    const previous = found ? { ...found, [field]: event.oldValue } : null;
+    const key = editKey(event.data?.id, field);
+    const editContext = editContextRef.current.get(key) || {
+      rowId: event.data?.id,
+      field,
+      baseValue: event.oldValue,
+      baseVersion: Number(previous?.version ?? event.data?.version ?? 1)
+    };
     const automated = applyAutomation(event.data);
     event.api.applyTransaction({ update: [automated] });
 
     if (!onRowChanged) {
       setRows((old) => old.map((row) => (row.id === automated.id ? automated : row)));
+      editContextRef.current.delete(key);
       return;
     }
 
     try {
-      const saved = await onRowChanged(automated, event.colDef?.field || '');
+      const saved = await onRowChanged(automated, event.colDef?.field || '', editContext);
       if (saved) event.api.applyTransaction({ update: [saved] });
     } catch {
       if (previous) {
         event.api.applyTransaction({ update: [previous] });
         setRows((old) => old.map((row) => (row.id === previous.id ? previous : row)));
       }
+    } finally {
+      editContextRef.current.delete(key);
     }
   }
 
@@ -274,6 +331,8 @@ export default function ShipmentGrid({
         rowData={rows}
         columnDefs={columnDefs}
         defaultColDef={defaultColDef}
+        onCellEditingStarted={handleCellEditingStarted}
+        onCellEditingStopped={handleCellEditingStopped}
         onCellValueChanged={onCellValueChanged}
         onFilterChanged={(event) => {
           syncDisplayedIds(event.api);

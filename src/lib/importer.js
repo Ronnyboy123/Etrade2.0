@@ -324,9 +324,46 @@ function makeImportedRow(rawRow, columns, assignedTo, index) {
   return mapped;
 }
 
-export function buildImportPlan({ existingRows, importedRows, headers, assignedTo = '' }) {
+const WORKFLOW_STATUS_RANK = {
+  PENDING: 0,
+  REGISTERED: 1,
+  ASSESSED: 2,
+  PAID: 3,
+  RELEASED: 4,
+  EXPORT: 5
+};
+
+function parseTimestamp(value) {
+  if (!value) return null;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+function isBlankImportedValue(value) {
+  return value === undefined || value === null || String(value).trim() === '';
+}
+
+function isWorkflowRegression(field, serverValue, importedValue) {
+  if (field !== 'boc_status') return false;
+  const serverRank = WORKFLOW_STATUS_RANK[String(serverValue ?? '').trim().toUpperCase()];
+  const importRank = WORKFLOW_STATUS_RANK[String(importedValue ?? '').trim().toUpperCase()];
+  return Number.isFinite(serverRank) && Number.isFinite(importRank) && importRank < serverRank;
+}
+
+function conflictIdFor(rowId, field) {
+  return `${rowId}:${field}`;
+}
+
+export function buildImportPlan({
+  existingRows,
+  importedRows,
+  headers,
+  assignedTo = '',
+  importSnapshotAt = null
+}) {
   const mapping = mapImportedHeaders(headers);
   const existingByKey = new Map();
+  const importSnapshotTime = parseTimestamp(importSnapshotAt);
 
   for (const row of existingRows) {
     for (const key of shipmentMatchKeys(row)) {
@@ -339,11 +376,14 @@ export function buildImportPlan({ existingRows, importedRows, headers, assignedT
   const rowIndexById = new Map(nextRows.map((row, index) => [row.id, index]));
   const seenImportKeys = new Set();
   const changes = [];
+  const fieldConflicts = [];
   let created = 0;
   let updated = 0;
   let duplicates = 0;
   let missingKey = 0;
   let conflicts = 0;
+  let safeUpdates = 0;
+  let unchanged = 0;
 
   importedRows.forEach((rawRow, index) => {
     const incoming = makeImportedRow(rawRow, mapping.columns, assignedTo, index);
@@ -369,20 +409,45 @@ export function buildImportPlan({ existingRows, importedRows, headers, assignedT
         changes.push({ type: 'conflict', row: oldRow, incoming });
         return;
       }
+
       const merged = { ...oldRow };
       const changedFields = [];
+      const rowFieldConflicts = [];
+      const serverUpdatedTime = parseTimestamp(oldRow.updated_at);
+      const serverNewer = importSnapshotTime !== null
+        && serverUpdatedTime !== null
+        && serverUpdatedTime > importSnapshotTime;
 
       for (const [field, value] of Object.entries(incoming)) {
         if (field === 'id' || field === 'assigned_to') continue;
-        if (value === undefined || value === null || value === '') continue;
-        if (String(oldRow[field] ?? '') !== String(value)) {
-          changedFields.push({
+        if (isBlankImportedValue(value)) continue;
+        if (String(oldRow[field] ?? '') === String(value)) continue;
+
+        const workflowRegression = isWorkflowRegression(field, oldRow[field], value);
+        if (serverNewer || workflowRegression) {
+          const conflict = {
+            id: conflictIdFor(oldRow.id, field),
+            shipmentId: oldRow.id,
+            shipmentCode: oldRow.shipment_code || oldRow.job_file_number || '',
             field,
-            oldValue: oldRow[field] ?? '',
-            newValue: value
-          });
-          merged[field] = value;
+            label: FIELD_DEFINITIONS[field]?.label || mapping.columns.find((column) => column.field === field)?.label || field,
+            serverValue: oldRow[field] ?? '',
+            importedValue: value,
+            reason: workflowRegression
+              ? 'Potential outdated workflow value. The imported status would move this shipment backward.'
+              : 'Relora changed after this file was last modified.'
+          };
+          rowFieldConflicts.push(conflict);
+          fieldConflicts.push(conflict);
+          continue;
         }
+
+        changedFields.push({
+          field,
+          oldValue: oldRow[field] ?? '',
+          newValue: value
+        });
+        merged[field] = value;
       }
 
       if (assignedTo) {
@@ -392,8 +457,21 @@ export function buildImportPlan({ existingRows, importedRows, headers, assignedT
 
       const automatedMerged = applyAutomation(merged);
       nextRows[rowIndex] = automatedMerged;
-      updated += 1;
-      changes.push({ type: 'update', row: automatedMerged, changedFields });
+
+      if (changedFields.length > 0) {
+        updated += 1;
+        safeUpdates += 1;
+      } else if (rowFieldConflicts.length === 0) {
+        unchanged += 1;
+      }
+
+      changes.push({
+        type: 'update',
+        row: automatedMerged,
+        incoming,
+        changedFields,
+        fieldConflicts: rowFieldConflicts
+      });
       return;
     }
 
@@ -411,20 +489,69 @@ export function buildImportPlan({ existingRows, importedRows, headers, assignedT
     createdRows.push(automatedCreatedRow);
     for (const key of shipmentMatchKeys(automatedCreatedRow)) existingByKey.set(key, automatedCreatedRow.id);
     created += 1;
-    changes.push({ type: 'create', row: automatedCreatedRow, changedFields: [] });
+    changes.push({ type: 'create', row: automatedCreatedRow, changedFields: [], fieldConflicts: [] });
   });
 
   return {
     ...mapping,
     finalRows: [...createdRows, ...nextRows],
     changes,
+    fieldConflicts,
+    unresolvedConflicts: fieldConflicts.length,
+    importSnapshotAt,
     summary: {
       total: importedRows.length,
       created,
       updated,
+      safeUpdates,
+      reviewConflicts: fieldConflicts.length,
+      unchanged,
       duplicates,
       missingKey,
-      conflicts
+      conflicts,
+      assignmentConflicts: conflicts
     }
+  };
+}
+
+export function resolveImportConflicts(plan, resolutions = {}) {
+  const changes = plan.changes.map((change) => {
+    if (change.type !== 'update' || !change.fieldConflicts?.length) return change;
+
+    const row = { ...change.row };
+    const changedFields = [...(change.changedFields || [])];
+
+    for (const conflict of change.fieldConflicts) {
+      if (resolutions[conflict.id] !== 'import') continue;
+      row[conflict.field] = conflict.importedValue;
+      changedFields.push({
+        field: conflict.field,
+        oldValue: conflict.serverValue,
+        newValue: conflict.importedValue,
+        reviewed: true
+      });
+    }
+
+    return { ...change, row: applyAutomation(row), changedFields };
+  });
+
+  const unresolvedConflicts = (plan.fieldConflicts || []).filter(
+    (conflict) => !['server', 'import'].includes(resolutions[conflict.id])
+  ).length;
+
+  const resolvedById = new Map(
+    changes
+      .filter((change) => change.type === 'update' && change.row?.id)
+      .map((change) => [change.row.id, change.row])
+  );
+
+  const finalRows = plan.finalRows.map((row) => resolvedById.get(row.id) || row);
+
+  return {
+    ...plan,
+    changes,
+    finalRows,
+    resolutions: { ...resolutions },
+    unresolvedConflicts
   };
 }

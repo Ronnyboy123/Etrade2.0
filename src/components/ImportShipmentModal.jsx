@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { AlertTriangle, FileSpreadsheet, UploadCloud, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { buildImportPlan } from '../lib/importer.js';
+import { buildImportPlan, resolveImportConflicts } from '../lib/importer.js';
 
 function readSheet(file) {
   return file.arrayBuffer().then((buffer) => {
@@ -50,6 +50,7 @@ export default function ImportShipmentModal({
   const [fileName, setFileName] = useState('');
   const [sheetName, setSheetName] = useState('');
   const [plan, setPlan] = useState(null);
+  const [resolutions, setResolutions] = useState({});
 
   async function handleFile(file) {
     if (!file) return;
@@ -62,6 +63,7 @@ export default function ImportShipmentModal({
     setIsReading(true);
     setError('');
     setPlan(null);
+    setResolutions({});
 
     try {
       const parsed = await readSheet(file);
@@ -69,7 +71,8 @@ export default function ImportShipmentModal({
         existingRows: allRows,
         importedRows: parsed.rows,
         headers: parsed.headers,
-        assignedTo
+        assignedTo,
+        importSnapshotAt: file.lastModified ? new Date(file.lastModified).toISOString() : null
       });
 
       setFileName(file.name);
@@ -148,9 +151,9 @@ export default function ImportShipmentModal({
             <div className="import-summary-grid">
               <div><span>Rows found</span><strong>{plan.summary.total}</strong></div>
               <div className="success"><span>New</span><strong>{plan.summary.created}</strong></div>
-              <div className="info"><span>Existing Updated</span><strong>{plan.summary.updated}</strong></div>
-              <div className="warning"><span>Duplicates</span><strong>{plan.summary.duplicates}</strong></div>
-              <div className="danger"><span>Assignment conflicts</span><strong>{plan.summary.conflicts}</strong></div>
+              <div className="info"><span>Safe Updates</span><strong>{plan.summary.safeUpdates}</strong></div>
+              <div className="danger"><span>Needs Review</span><strong>{plan.summary.reviewConflicts}</strong></div>
+              <div><span>Unchanged</span><strong>{plan.summary.unchanged}</strong></div>
               <div><span>Missing match key</span><strong>{plan.summary.missingKey}</strong></div>
             </div>
 
@@ -189,6 +192,48 @@ export default function ImportShipmentModal({
               </div>
             </div>
 
+            {plan.fieldConflicts?.length > 0 && (
+              <div className="import-conflict-review">
+                <div className="import-conflict-heading">
+                  <div>
+                    <h4>Review Potential Outdated Values</h4>
+                    <p>Potential outdated value detected. Relora will not overwrite a newer value until you choose what to keep.</p>
+                  </div>
+                  <span>{plan.fieldConflicts.length} value{plan.fieldConflicts.length === 1 ? '' : 's'}</span>
+                </div>
+
+                {plan.fieldConflicts.map((conflict) => (
+                  <div className="import-conflict-card" key={conflict.id}>
+                    <div className="import-conflict-meta">
+                      <strong>{conflict.shipmentCode || 'Matched shipment'}</strong>
+                      <span>{conflict.label}</span>
+                    </div>
+                    <p className="import-conflict-reason">{conflict.reason}</p>
+                    <div className="import-conflict-values">
+                      <div><span>Relora</span><strong>{String(conflict.serverValue || '—')}</strong></div>
+                      <div><span>Imported file</span><strong>{String(conflict.importedValue || '—')}</strong></div>
+                    </div>
+                    <div className="import-conflict-actions">
+                      <button
+                        type="button"
+                        className={resolutions[conflict.id] === 'server' ? 'selected' : ''}
+                        onClick={() => setResolutions((old) => ({ ...old, [conflict.id]: 'server' }))}
+                      >
+                        Keep Relora
+                      </button>
+                      <button
+                        type="button"
+                        className={resolutions[conflict.id] === 'import' ? 'selected' : ''}
+                        onClick={() => setResolutions((old) => ({ ...old, [conflict.id]: 'import' }))}
+                      >
+                        Use Imported
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {plan.summary.conflicts > 0 && (
               <div className="import-warning-message">
                 <AlertTriangle size={17} />
@@ -198,9 +243,15 @@ export default function ImportShipmentModal({
             )}
 
             <div className="modal-actions">
-              <button className="ghost-button" onClick={() => setPlan(null)}>Choose another file</button>
-              <button className="primary-button" onClick={() => onConfirm(plan)}>
-                Sync {plan.summary.created + plan.summary.updated} Changes
+              <button className="ghost-button" onClick={() => { setPlan(null); setResolutions({}); }}>Choose another file</button>
+              <button
+                className="primary-button"
+                disabled={(plan.fieldConflicts || []).some((conflict) => !resolutions[conflict.id])}
+                onClick={() => onConfirm(resolveImportConflicts(plan, resolutions))}
+              >
+                {(plan.fieldConflicts || []).some((conflict) => !resolutions[conflict.id])
+                  ? `Review ${plan.fieldConflicts.filter((conflict) => !resolutions[conflict.id]).length} Value(s)`
+                  : 'Sync Reviewed Changes'}
               </button>
             </div>
           </>

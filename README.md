@@ -1,8 +1,8 @@
-# Shipment Timeline v8
+# Relora v9
 
-Google-only login + Supabase authorization + persistent shipment data.
+Customs brokerage shipment operations with Google-only login, Supabase authorization, persistent data, realtime collaboration, conflict protection, archive/restore, and leadership audit history.
 
-## What changed in v8
+## Relora v9 reliability upgrade
 
 - Users must sign in before seeing any shipment/dashboard screen.
 - Google OAuth is handled by Supabase Auth.
@@ -15,8 +15,13 @@ Google-only login + Supabase authorization + persistent shipment data.
   - Manager (`manager`)
   - Portal / Broker (`portal`)
   - Admin (`admin`)
-- Shipment rows are loaded from Supabase after login.
-- Manual edits, new shipments, deletes, and imports persist to Supabase.
+- Shipment rows are loaded from Supabase after login and receive authorized Supabase Realtime updates.
+- Manual edits, new shipments, archive/restore actions, and reviewed imports persist to Supabase.
+- Save state is visible as Saved, Saving…, Offline, Reconnecting…, or Sync issue.
+- Same-field concurrent edits are protected by an explicit conflict review; different-field realtime updates can merge without stomping the active editor.
+- Activity History is visible only to Team Lead, Manager, and Admin roles.
+- Team Leads, Managers, and Admins can Archive/Restore. A permanent delete is restricted to Admin only.
+- Older Excel values can be flagged for review instead of silently overwriting newer Relora data.
 - Unknown imported columns are stored in `custom_fields` JSONB.
 - Portal users still have restricted edit access to only:
   - Portal Submission Date
@@ -181,20 +186,31 @@ Someone knowing the Netlify URL cannot see shipment data without both a valid Go
 ### Customs Declarant
 - My Workspace only
 - Own assigned shipments only
-- Can add/import/edit/delete own authorized rows
+- Can add/import/edit own authorized rows; no archive or permanent delete access
 
 ### Team Lead
 - Dashboard
 - Team Workspaces for their own team
 - Can edit their team records
+- Can Archive/Restore authorized team shipments
+- Can view Activity History for authorized shipments
 
 ### Assistant Manager
 - Dashboard
 - Master Shipments
 - All Team Workspaces
 
-### Manager / Admin
+### Manager
+- Full operational visibility
+- Can Archive/Restore shipments
+- Can view Activity History
+- Cannot permanently delete
+
+### Admin
 - Full operational access
+- Can Archive/Restore
+- Can view Activity History
+- Only role allowed to permanently delete archived shipments
 
 ### Portal / Broker
 - Master Shipments
@@ -242,3 +258,26 @@ Excel placeholders such as `N/A`, `NA`, `N.A.`, `NONE`, `Not Applicable`, `-`, a
 - Spreadsheet placeholders such as `.`, `..`, `...`, `TBA`, `TBD`, `NIL`, `N/A`, blanks, and dashes are stored as empty dates instead of being sent to PostgreSQL date columns.
 - Unrecognized or malformed date text is normalized to `null` at the Supabase serialization boundary, preventing a single bad spreadsheet date from crashing the entire import.
 - Valid Excel Date objects and supported date strings continue to normalize to `YYYY-MM-DD`.
+
+
+## v9 production deployment note
+
+The v9 `supabase-schema.sql` adds shipment versions, archive metadata, activity fields, write RPCs, RLS changes, and Supabase Realtime publication setup. It also revokes direct browser writes to `shipments` so changes flow through the safer v9 RPCs.
+
+For the first production upgrade, use a short **maintenance window** so users are not editing while the frontend and database schema are temporarily on different versions. Keep the current production site closed to editing, run the complete `supabase-schema.sql` in Supabase SQL Editor, then immediately deploy the v9 frontend from Netlify/GitHub. After deployment, test with two approved accounts in separate browsers before reopening normal work.
+
+The migration intentionally makes old v8 write calls incompatible with the new write restrictions. Do not leave the v8 frontend running for normal users after applying the v9 database migration.
+
+## v9 safety behavior
+
+- **Realtime:** authorized INSERT/UPDATE/DELETE shipment events update open sessions without a manual refresh.
+- **Conflict protection:** a same-field concurrent edit shows the current server value and the user's proposed value instead of silently overwriting either one.
+- **Offline:** Relora is read-only for mutations while offline. v9 does not queue offline edits for later replay.
+- **Archive:** Team Lead, Manager, and Admin can archive/restore authorized shipments. Archived rows disappear from active workspaces.
+- **Permanent delete:** Admin only, from the Archived view, with confirmation.
+- **Activity History:** Team Lead, Manager, and Admin only. It records meaningful field edits, conflict overrides, imports, archive, and restore actions.
+- **Import review:** blank imported cells do not erase populated Relora values. If the server row is newer than the uploaded file or a BOC status would move backward, the user must choose Keep Relora or Use Imported before sync.
+
+## v9 recommended acceptance test
+
+Open the deployed site in two browsers using two approved users. Edit different fields on the same shipment and confirm both values survive. Then edit the same field in both browsers and confirm Relora shows the conflict dialog. Verify Archive removes the row from active workspaces, Restore brings it back, a non-Admin cannot permanently delete, and Activity History is not visible to employee/assistant-manager/portal accounts.

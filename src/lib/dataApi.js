@@ -25,6 +25,12 @@ const NUMERIC_FIELDS = new Set([
   'timeline_cargo_releasing','timeline_liquidation','timeline_liquidation_tl','timeline_billing','timeline_closing'
 ]);
 
+const AUTOMATION_PATCH_FIELDS = [
+  'validated_manifest_date','current_stage','completion','next_action','overall_status','boc_status','days_open','last_milestone_date',
+  'delay_action_remarks','timeline_duty_tax','timeline_lodgement','timeline_fan','timeline_cargo_releasing','timeline_liquidation',
+  'timeline_liquidation_tl','timeline_billing','timeline_closing'
+];
+
 async function requireSupabase() {
   const { supabase } = await import('./supabase.js');
   if (!supabase) throw new Error('Supabase is not configured. Add the VITE_SUPABASE_URL and public key environment variables.');
@@ -103,9 +109,6 @@ export function normalizeDateValue(value, row = {}) {
     return formatCalendarDate(year, month, Number(named[1]));
   }
 
-  // Never pass unrecognized text to PostgreSQL date columns.
-  // Spreadsheet placeholders/typos are treated as an empty date instead of
-  // failing the entire import with invalid input syntax for type date.
   return null;
 }
 
@@ -139,20 +142,33 @@ export function flattenShipmentRow(row) {
   return { ...base, ...custom };
 }
 
+export function serializeFieldValue(field, value, row = {}) {
+  if (field?.startsWith(CUSTOM_PREFIX)) return value === undefined ? null : value;
+  if (DATE_FIELDS.has(field)) return normalizeDateValue(value, row);
+  if (NUMERIC_FIELDS.has(field)) return numericValue(value);
+  return value === undefined ? null : value;
+}
+
+export function buildAutomationPatch(row = {}) {
+  return Object.fromEntries(
+    AUTOMATION_PATCH_FIELDS
+      .filter((field) => Object.prototype.hasOwnProperty.call(row, field))
+      .map((field) => [field, serializeFieldValue(field, row[field], row)])
+  );
+}
+
 export function serializeShipmentRow(row) {
   const payload = {};
   const customFields = {};
 
   for (const [field, value] of Object.entries(row || {})) {
-    if (field === 'id' || field === 'created_at' || field === 'updated_at') continue;
+    if (field === 'id' || field === 'created_at' || field === 'updated_at' || field === 'version' || field === 'archived_at' || field === 'archived_by') continue;
     if (field.startsWith(CUSTOM_PREFIX)) {
       customFields[field] = value;
       continue;
     }
     if (!DB_FIELDS.has(field) || field === 'custom_fields') continue;
-    if (DATE_FIELDS.has(field)) payload[field] = normalizeDateValue(value, row);
-    else if (NUMERIC_FIELDS.has(field)) payload[field] = numericValue(value);
-    else payload[field] = value === undefined ? null : value;
+    payload[field] = serializeFieldValue(field, value, row);
   }
 
   payload.shipment_code = makeShipmentCode(row || payload);
@@ -161,6 +177,23 @@ export function serializeShipmentRow(row) {
     ...customFields
   };
   return payload;
+}
+
+export class ShipmentConflictError extends Error {
+  constructor(result, context = {}) {
+    super('This shipment changed elsewhere while you were editing.');
+    this.name = 'ShipmentConflictError';
+    this.field = context.field || '';
+    this.baseValue = context.baseValue;
+    this.proposedValue = context.proposedValue;
+    this.serverValue = result?.current_value;
+    this.serverVersion = result?.server_version;
+    this.serverRow = flattenShipmentRow(result?.row || null);
+  }
+}
+
+export function isShipmentConflictResult(result) {
+  return result?.status === 'conflict';
 }
 
 export async function loadVisibleProfiles() {
@@ -176,7 +209,22 @@ export async function loadVisibleProfiles() {
 
 export async function loadShipments() {
   const client = await requireSupabase();
-  const { data, error } = await client.from('shipments').select('*').order('created_at', { ascending: false });
+  const { data, error } = await client
+    .from('shipments')
+    .select('*')
+    .is('archived_at', null)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(flattenShipmentRow);
+}
+
+export async function loadArchivedShipments() {
+  const client = await requireSupabase();
+  const { data, error } = await client
+    .from('shipments')
+    .select('*')
+    .not('archived_at', 'is', null)
+    .order('archived_at', { ascending: false });
   if (error) throw error;
   return (data || []).map(flattenShipmentRow);
 }
@@ -184,46 +232,98 @@ export async function loadShipments() {
 export async function insertShipment(row) {
   const client = await requireSupabase();
   const payload = serializeShipmentRow(row);
-  const { data, error } = await client.from('shipments').insert(payload).select().single();
+  const { data, error } = await client.rpc('create_shipment', { p_row: payload });
   if (error) throw error;
   return flattenShipmentRow(data);
 }
 
-export async function updateShipment(row, changedField, currentUser) {
+export async function updateShipmentField(row, changedField, currentUser, editContext = {}, options = {}) {
   const client = await requireSupabase();
   if (!row?.id) throw new Error('Cannot update a shipment without a database id.');
+  if (!changedField) throw new Error('Cannot update a shipment without a field name.');
 
-  if (currentUser?.role === 'portal') {
-    const { error } = await client.rpc('update_portal_fields', {
-      p_shipment_id: row.id,
-      p_portal_submission: normalizeDateValue(row.portal_submission, row),
-      p_broker_representative: row.broker_representative || null,
-      p_portal_ticket_efile: row.portal_ticket_efile || null
-    });
-    if (error) throw error;
-    const { data, error: readError } = await client.from('shipments').select('*').eq('id', row.id).single();
-    if (readError) throw readError;
-    return flattenShipmentRow(data);
-  }
+  const proposedValue = serializeFieldValue(changedField, row[changedField], row);
+  const baseValue = serializeFieldValue(changedField, editContext.baseValue, row);
+  const { data, error } = await client.rpc('update_shipment_field', {
+    p_shipment_id: row.id,
+    p_field_name: changedField,
+    p_new_value: proposedValue,
+    p_base_version: Number(editContext.baseVersion ?? row.version ?? 1),
+    p_base_value: baseValue,
+    p_force: Boolean(options.force),
+    p_derived: buildAutomationPatch(row)
+  });
 
-  const payload = serializeShipmentRow(row);
-  const { data, error } = await client.from('shipments').update(payload).eq('id', row.id).select().single();
   if (error) throw error;
-  return flattenShipmentRow(data);
+  if (isShipmentConflictResult(data)) {
+    throw new ShipmentConflictError(data, {
+      field: changedField,
+      baseValue: editContext.baseValue,
+      proposedValue: row[changedField]
+    });
+  }
+  return flattenShipmentRow(data?.row || data);
 }
 
-export async function deleteShipments(ids) {
+// Compatibility wrapper for existing callers during the v9 transition.
+export async function updateShipment(row, changedField, currentUser, editContext = {}) {
+  return updateShipmentField(row, changedField, currentUser, editContext);
+}
+
+export async function archiveShipments(ids) {
   const client = await requireSupabase();
   const cleanIds = (ids || []).filter(Boolean);
-  if (!cleanIds.length) return;
-  const { error } = await client.from('shipments').delete().in('id', cleanIds);
+  if (!cleanIds.length) return 0;
+  const { data, error } = await client.rpc('archive_shipments', { p_ids: cleanIds });
   if (error) throw error;
+  return Number(data || 0);
+}
+
+export async function restoreShipments(ids) {
+  const client = await requireSupabase();
+  const cleanIds = (ids || []).filter(Boolean);
+  if (!cleanIds.length) return 0;
+  const { data, error } = await client.rpc('restore_shipments', { p_ids: cleanIds });
+  if (error) throw error;
+  return Number(data || 0);
+}
+
+export async function permanentlyDeleteShipments(ids) {
+  const client = await requireSupabase();
+  const cleanIds = (ids || []).filter(Boolean);
+  if (!cleanIds.length) return 0;
+  const { data, error } = await client.rpc('admin_delete_shipments', { p_ids: cleanIds });
+  if (error) throw error;
+  return Number(data || 0);
+}
+
+// v8 name retained only so older components fail safe into Archive rather than Delete.
+export async function deleteShipments(ids) {
+  return archiveShipments(ids);
+}
+
+export async function loadShipmentActivity(shipmentId) {
+  const client = await requireSupabase();
+  const { data, error } = await client
+    .from('shipment_activity')
+    .select('id,shipment_id,changed_by,action_type,actor_email,actor_name,field_name,old_value,new_value,source,created_at')
+    .eq('shipment_id', shipmentId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
 }
 
 export function prepareImportPayloads(changes) {
   return (changes || [])
     .filter((change) => change && change.type !== 'conflict' && change.row)
-    .map((change) => serializeShipmentRow(change.row));
+    .map((change) => {
+      const payload = serializeShipmentRow(change.row);
+      payload._relora_import_intent = change.type;
+      if (change.type === 'update' && Number.isFinite(Number(change.row?.version))) {
+        payload._relora_expected_version = Number(change.row.version);
+      }
+      return payload;
+    });
 }
 
 export async function persistImportChanges(changes, currentUser) {
@@ -231,16 +331,7 @@ export async function persistImportChanges(changes, currentUser) {
   const payloads = prepareImportPayloads(changes);
   if (!payloads.length) return [];
 
-  // Imports are intentionally persisted as one idempotent batch. If an earlier
-  // attempt partially succeeded before the browser saw an error, retrying the
-  // same file updates the rows with the same shipment_code instead of trying
-  // to insert duplicates. A single upsert statement is also atomic at the
-  // database level: the whole batch succeeds or the whole batch fails.
-  const { data, error } = await client
-    .from('shipments')
-    .upsert(payloads, { onConflict: 'shipment_code' })
-    .select('*');
-
+  const { data, error } = await client.rpc('persist_import_batch', { p_rows: payloads });
   if (error) {
     if (error.code === '23505' || /duplicate key value/i.test(error.message || '')) {
       throw new Error('A shipment with the same unique shipment code already exists. Refresh the data and retry the import.');
