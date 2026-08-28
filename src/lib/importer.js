@@ -1,0 +1,430 @@
+import { applyAutomation } from './automation.js';
+
+export const AUTOMATED_FIELDS = [
+  'validated_manifest_date',
+  'current_stage',
+  'completion',
+  'next_action',
+  'overall_status',
+  'boc_status',
+  'days_open',
+  'last_milestone_date',
+  'delay_action_remarks'
+];
+
+export const FIELD_DEFINITIONS = {
+  validated_manifest_date: { label: 'Validated Manifest Date', group: 'auto' },
+  current_stage: { label: 'Current Stage', group: 'auto' },
+  completion: { label: 'Completion %', group: 'auto' },
+  next_action: { label: 'Next Action', group: 'auto' },
+  overall_status: { label: 'Timeline Status', group: 'auto' },
+  boc_status: { label: 'BOC Status', group: 'auto' },
+  days_open: { label: 'Days Open', group: 'auto' },
+  last_milestone_date: { label: 'Last Milestone Date', group: 'auto' },
+  delay_action_remarks: { label: 'Delay / Action Remarks', group: 'auto' },
+
+  service_month: { label: 'Service Month', group: 'shipment' },
+  job_file_number: { label: 'Job File No.', group: 'shipment' },
+  customer: { label: 'Customer', group: 'shipment' },
+  shipper: { label: 'Shipper', group: 'shipment' },
+  mode: { label: 'Mode (Air / LCL / FCL)', group: 'shipment' },
+  house_awb_bl: { label: 'House AWB / BL No.', group: 'shipment' },
+  master_awb_bl: { label: 'Master AWB / BL No.', group: 'shipment' },
+  pre_alert_shipping_documents: { label: 'Pre-Alert Documents', group: 'shipment' },
+  eta: { label: 'ETA', group: 'shipment' },
+  cw_air_cbm_lcl: { label: 'Chargeable Weight / CBM', group: 'shipment' },
+  number_of_container: { label: 'No. of Containers', group: 'shipment' },
+  description: { label: 'Description', group: 'shipment' },
+  dt_computation: { label: 'DT Computation', group: 'shipment' },
+  week_no: { label: 'Week No.', group: 'shipment' },
+  fundcast: { label: 'Fundcast', group: 'shipment' },
+  ata: { label: 'ATA', group: 'shipment' },
+  port_of_entry: { label: 'Port of Entry', group: 'shipment' },
+
+  location_of_goods: { label: 'Location of Goods', group: 'customs' },
+  lodgement: { label: 'Lodgement Date', group: 'customs' },
+  assessed: { label: 'Assessment Date', group: 'customs' },
+  paid: { label: 'Payment Date', group: 'customs' },
+  entry_no: { label: 'Entry No.', group: 'customs' },
+  selectivity_color: { label: 'Selectivity Color', group: 'customs' },
+
+  portal_submission: { label: 'Portal Submission Date', group: 'portal' },
+  broker_representative: { label: 'Broker Representative', group: 'portal' },
+  portal_ticket_efile: { label: 'Portal Ticket / eFile', group: 'portal' },
+  releasing_date: { label: 'Release Date', group: 'portal' },
+  liquidation_processor: { label: 'Liquidation Processor Date', group: 'portal' },
+  liquidation_tl: { label: 'Liquidation TL Date', group: 'portal' },
+  endorsement_to_biller: { label: 'Endorsed to Biller', group: 'portal' },
+  team_leader: { label: 'Team Leader', group: 'portal' },
+  customs_declarant: { label: 'Customs Declarant', group: 'portal' },
+
+  received_folder: { label: 'Folder Received Date', group: 'biller' },
+  billed_date: { label: 'Billing Date', group: 'biller' },
+  efile: { label: 'eFile Status', group: 'biller' },
+  dispatch: { label: 'Dispatch Date', group: 'biller' },
+
+  timeline_duty_tax: { label: 'Duty & Tax Lead Time', group: 'timeline' },
+  timeline_lodgement: { label: 'Lodgement Lead Time', group: 'timeline' },
+  timeline_fan: { label: 'FAN Lead Time', group: 'timeline' },
+  timeline_cargo_releasing: { label: 'Cargo Release Lead Time', group: 'timeline' },
+  timeline_liquidation: { label: 'Liquidation Processing Time', group: 'timeline' },
+  timeline_liquidation_tl: { label: 'Liquidation TL Time', group: 'timeline' },
+  timeline_billing: { label: 'Billing Lead Time', group: 'timeline' },
+  timeline_closing: { label: 'Closing Lead Time', group: 'timeline' }
+};
+
+const normalize = (value) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[()]/g, ' ')
+    .replace(/[\/\\.-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const slug = (value) =>
+  normalize(value)
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'column';
+
+const ALIASES = {
+  'validated manifest date': 'validated_manifest_date',
+  'manifest validated date': 'validated_manifest_date',
+  'validated date': 'validated_manifest_date',
+  'current stage': 'current_stage',
+  'stage': 'current_stage',
+  'completion': 'completion',
+  'completion %': 'completion',
+  'completion percent': 'completion',
+  'next action': 'next_action',
+  'overall timeline status': 'overall_status',
+  'timeline status': 'overall_status',
+  'overall status': 'overall_status',
+  'boc status': 'boc_status',
+  'customs status': 'boc_status',
+  'days open': 'days_open',
+  'last milestone date': 'last_milestone_date',
+  'delay action remarks': 'delay_action_remarks',
+  'delay / action remarks': 'delay_action_remarks',
+  'remarks': 'delay_action_remarks',
+
+  'service month': 'service_month',
+  'job file number': 'job_file_number',
+  'job file no': 'job_file_number',
+  'job file': 'job_file_number',
+  'customer': 'customer',
+  'client': 'customer',
+  'shipper': 'shipper',
+  'mode': 'mode',
+  'mode air lcl fcl': 'mode',
+  'house awb bl number': 'house_awb_bl',
+  'house awb bl no': 'house_awb_bl',
+  'house awb bl': 'house_awb_bl',
+  'hawb': 'house_awb_bl',
+  'hbl': 'house_awb_bl',
+  'master awb bl number': 'master_awb_bl',
+  'master awb bl no': 'master_awb_bl',
+  'master awb bl': 'master_awb_bl',
+  'mawb': 'master_awb_bl',
+  'mbl': 'master_awb_bl',
+  'pre alert shipping documents': 'pre_alert_shipping_documents',
+  'pre alert documents': 'pre_alert_shipping_documents',
+  'pre alert': 'pre_alert_shipping_documents',
+  'eta': 'eta',
+  'cw air cbm lcl': 'cw_air_cbm_lcl',
+  'chargeable weight cbm': 'cw_air_cbm_lcl',
+  'chargeable weight / cbm': 'cw_air_cbm_lcl',
+  'number of container': 'number_of_container',
+  'number of containers': 'number_of_container',
+  'no of container': 'number_of_container',
+  'no of containers': 'number_of_container',
+  'description': 'description',
+  'dt computation': 'dt_computation',
+  'week no': 'week_no',
+  'week number': 'week_no',
+  'fundcast': 'fundcast',
+  'ata': 'ata',
+  'port of entry': 'port_of_entry',
+
+  'location of goods': 'location_of_goods',
+  'lodgement': 'lodgement',
+  'lodgement date': 'lodgement',
+  'assessed': 'assessed',
+  'assessment': 'assessed',
+  'assessment date': 'assessed',
+  'paid': 'paid',
+  'payment date': 'paid',
+  'entry no': 'entry_no',
+  'entry number': 'entry_no',
+  'selectivity color': 'selectivity_color',
+
+  'portal submission': 'portal_submission',
+  'portal submission date': 'portal_submission',
+  "broker's representative": 'broker_representative',
+  'broker representative': 'broker_representative',
+  'portal ticket efile': 'portal_ticket_efile',
+  'portal ticket / efile': 'portal_ticket_efile',
+  'releasing date': 'releasing_date',
+  'release date': 'releasing_date',
+  'liquidation processor': 'liquidation_processor',
+  'liquidation processor date': 'liquidation_processor',
+  'liquidation tl': 'liquidation_tl',
+  'liquidation tl date': 'liquidation_tl',
+  'liquidation team lead': 'liquidation_tl',
+  'endorsement to biller': 'endorsement_to_biller',
+  'endorsed to biller': 'endorsement_to_biller',
+  'team leader': 'team_leader',
+  'customs declarant': 'customs_declarant',
+
+  'received folder': 'received_folder',
+  'folder received date': 'received_folder',
+  'billed date': 'billed_date',
+  'billing date': 'billed_date',
+  'efile': 'efile',
+  'efile status': 'efile',
+  'dispatch': 'dispatch',
+  'dispatch date': 'dispatch',
+
+  'duty and tax computation': 'timeline_duty_tax',
+  'duty tax lead time': 'timeline_duty_tax',
+  'lodgement lead time': 'timeline_lodgement',
+  'fan lead time': 'timeline_fan',
+  'cargo releasing': 'timeline_cargo_releasing',
+  'cargo release lead time': 'timeline_cargo_releasing',
+  'liquidation release to processor': 'timeline_liquidation',
+  'liquidation processing time': 'timeline_liquidation',
+  'liquidation tl to biller': 'timeline_liquidation_tl',
+  'liquidation tl time': 'timeline_liquidation_tl',
+  'billing lead time': 'timeline_billing',
+  'closing lead time': 'timeline_closing'
+};
+
+for (const [field, def] of Object.entries(FIELD_DEFINITIONS)) {
+  ALIASES[normalize(def.label)] = field;
+}
+
+export function mapImportedHeaders(headers) {
+  const usedCustom = new Set();
+  const columns = headers.map((header) => {
+    const key = normalize(header);
+    const knownField = ALIASES[key];
+    if (knownField) {
+      return {
+        originalHeader: header,
+        field: knownField,
+        label: FIELD_DEFINITIONS[knownField]?.label ?? String(header),
+        group: FIELD_DEFINITIONS[knownField]?.group ?? 'imported',
+        isCustom: false
+      };
+    }
+
+    let customField = `custom__${slug(header)}`;
+    let index = 2;
+    while (usedCustom.has(customField)) {
+      customField = `custom__${slug(header)}_${index++}`;
+    }
+    usedCustom.add(customField);
+
+    return {
+      originalHeader: header,
+      field: customField,
+      label: String(header).trim() || 'Imported Column',
+      group: 'imported',
+      isCustom: true
+    };
+  });
+
+  // Custom/unknown imported columns inherit the closest recognized section
+  // so they visually stay with the part of the spreadsheet where they appeared.
+  // Automatic fields are intentionally ignored as anchors because that section is
+  // generated by the website and always displayed separately at the front.
+  columns.forEach((column, columnIndex) => {
+    if (!column.isCustom) return;
+
+    let left = null;
+    let right = null;
+
+    for (let index = columnIndex - 1; index >= 0; index -= 1) {
+      const candidate = columns[index];
+      if (!candidate.isCustom && candidate.group !== 'auto') {
+        left = { group: candidate.group, distance: columnIndex - index };
+        break;
+      }
+    }
+
+    for (let index = columnIndex + 1; index < columns.length; index += 1) {
+      const candidate = columns[index];
+      if (!candidate.isCustom && candidate.group !== 'auto') {
+        right = { group: candidate.group, distance: index - columnIndex };
+        break;
+      }
+    }
+
+    if (left && right) {
+      column.group = left.distance <= right.distance ? left.group : right.group;
+    } else if (left) {
+      column.group = left.group;
+    } else if (right) {
+      column.group = right.group;
+    }
+  });
+
+  const displayOrder = columns
+    .map((column) => column.field)
+    .filter((field) => !AUTOMATED_FIELDS.includes(field));
+
+  return { columns, displayOrder };
+}
+
+function normalizeMatchValue(value) {
+  return String(value ?? '').trim().toUpperCase();
+}
+
+const GENERIC_MATCH_VALUES = new Set(['TBA', 'TBD', 'N/A', 'NA', 'NONE', '-']);
+
+function usefulMatchValue(value) {
+  const normalized = normalizeMatchValue(value);
+  return normalized && !GENERIC_MATCH_VALUES.has(normalized) ? normalized : '';
+}
+
+export function shipmentMatchKeys(row) {
+  const job = usefulMatchValue(row.job_file_number);
+  const entry = usefulMatchValue(row.entry_no);
+  const house = usefulMatchValue(row.house_awb_bl);
+  const master = usefulMatchValue(row.master_awb_bl);
+
+  // Match by the strongest identifiers first. A Master BL can be shared by
+  // multiple House BLs, so it is only safe as a fallback when no stronger
+  // identifier exists on the row.
+  const keys = [
+    job && `job:${job}`,
+    entry && `entry:${entry}`,
+    house && `house:${house}`
+  ].filter(Boolean);
+
+  if (!keys.length && master) keys.push(`master:${master}`);
+  return keys;
+}
+
+function makeImportedRow(rawRow, columns, assignedTo, index) {
+  const mapped = {
+    id: `SHP-IMPORT-${Date.now()}-${index}`,
+    assigned_to: assignedTo,
+    customs_declarant: assignedTo
+  };
+
+  for (const column of columns) {
+    if (Object.prototype.hasOwnProperty.call(rawRow, column.originalHeader)) {
+      mapped[column.field] = rawRow[column.originalHeader];
+    }
+  }
+
+  if (!mapped.customs_declarant) mapped.customs_declarant = assignedTo;
+  return mapped;
+}
+
+export function buildImportPlan({ existingRows, importedRows, headers, assignedTo = '' }) {
+  const mapping = mapImportedHeaders(headers);
+  const existingByKey = new Map();
+
+  for (const row of existingRows) {
+    for (const key of shipmentMatchKeys(row)) {
+      if (!existingByKey.has(key)) existingByKey.set(key, row.id);
+    }
+  }
+
+  const nextRows = [...existingRows];
+  const createdRows = [];
+  const rowIndexById = new Map(nextRows.map((row, index) => [row.id, index]));
+  const seenImportKeys = new Set();
+  const changes = [];
+  let created = 0;
+  let updated = 0;
+  let duplicates = 0;
+  let missingKey = 0;
+  let conflicts = 0;
+
+  importedRows.forEach((rawRow, index) => {
+    const incoming = makeImportedRow(rawRow, mapping.columns, assignedTo, index);
+    const keys = shipmentMatchKeys(incoming);
+
+    if (keys.length === 0) missingKey += 1;
+
+    const duplicateWithinFile = keys.some((key) => seenImportKeys.has(key));
+    if (duplicateWithinFile) {
+      duplicates += 1;
+      return;
+    }
+    keys.forEach((key) => seenImportKeys.add(key));
+
+    const existingId = keys.map((key) => existingByKey.get(key)).find(Boolean);
+
+    if (existingId) {
+      const rowIndex = rowIndexById.get(existingId);
+      const oldRow = nextRows[rowIndex];
+
+      if (assignedTo && oldRow.assigned_to && oldRow.assigned_to !== assignedTo) {
+        conflicts += 1;
+        changes.push({ type: 'conflict', row: oldRow, incoming });
+        return;
+      }
+      const merged = { ...oldRow };
+      const changedFields = [];
+
+      for (const [field, value] of Object.entries(incoming)) {
+        if (field === 'id' || field === 'assigned_to') continue;
+        if (value === undefined || value === null || value === '') continue;
+        if (String(oldRow[field] ?? '') !== String(value)) {
+          changedFields.push({
+            field,
+            oldValue: oldRow[field] ?? '',
+            newValue: value
+          });
+          merged[field] = value;
+        }
+      }
+
+      if (assignedTo) {
+        merged.assigned_to = assignedTo;
+        if (!merged.customs_declarant) merged.customs_declarant = assignedTo;
+      }
+
+      const automatedMerged = applyAutomation(merged);
+      nextRows[rowIndex] = automatedMerged;
+      updated += 1;
+      changes.push({ type: 'update', row: automatedMerged, changedFields });
+      return;
+    }
+
+    const createdRow = {
+      current_stage: 'PRE-ARRIVAL',
+      completion: 0,
+      next_action: '',
+      overall_status: 'ON TRACK',
+      days_open: 0,
+      last_milestone_date: '',
+      delay_action_remarks: '',
+      ...incoming
+    };
+    const automatedCreatedRow = applyAutomation(createdRow);
+    createdRows.push(automatedCreatedRow);
+    for (const key of shipmentMatchKeys(automatedCreatedRow)) existingByKey.set(key, automatedCreatedRow.id);
+    created += 1;
+    changes.push({ type: 'create', row: automatedCreatedRow, changedFields: [] });
+  });
+
+  return {
+    ...mapping,
+    finalRows: [...createdRows, ...nextRows],
+    changes,
+    summary: {
+      total: importedRows.length,
+      created,
+      updated,
+      duplicates,
+      missingKey,
+      conflicts
+    }
+  };
+}
