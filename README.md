@@ -221,3 +221,7 @@ npm run build
 - Never commit `.env`.
 - Keep uploaded business files in private Supabase Storage if file storage is added later.
 - Remove/deactivate people in `approved_users` when they should no longer access the system. On the next access check their profile will be disabled.
+
+## v8.1 date import fix
+
+Excel date cells are now read as real dates instead of display-formatted text such as `1-Jul`. Before saving to Supabase, all recognized date fields are normalized to PostgreSQL-safe `YYYY-MM-DD` values. Short `d-mmm` text dates use the shipment service month to infer the year when needed.

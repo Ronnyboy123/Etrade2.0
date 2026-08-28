@@ -34,6 +34,77 @@ function blankToNull(value) {
   return value === '' || value === undefined || value === null ? null : value;
 }
 
+function pad2(value) {
+  return String(value).padStart(2, '0');
+}
+
+function formatCalendarDate(year, month, day) {
+  const date = new Date(year, month - 1, day);
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) return null;
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+}
+
+function inferredYear(row = {}) {
+  const serviceMonth = String(row.service_month ?? '').trim();
+  const compact = serviceMonth.match(/^(\d{4})(?:0[1-9]|1[0-2])$/);
+  if (compact) return Number(compact[1]);
+
+  const explicit = serviceMonth.match(/\b(20\d{2}|19\d{2})\b/);
+  if (explicit) return Number(explicit[1]);
+
+  for (const field of DATE_FIELDS) {
+    const value = row[field];
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value.getFullYear();
+    const match = String(value ?? '').match(/^(20\d{2}|19\d{2})[-/]/);
+    if (match) return Number(match[1]);
+  }
+
+  return new Date().getFullYear();
+}
+
+const MONTHS = new Map([
+  ['jan', 1], ['feb', 2], ['mar', 3], ['apr', 4], ['may', 5], ['jun', 6],
+  ['jul', 7], ['aug', 8], ['sep', 9], ['sept', 9], ['oct', 10], ['nov', 11], ['dec', 12]
+]);
+
+export function normalizeDateValue(value, row = {}) {
+  const normalized = blankToNull(value);
+  if (normalized === null) return null;
+
+  if (normalized instanceof Date) {
+    if (Number.isNaN(normalized.getTime())) return null;
+    return formatCalendarDate(
+      normalized.getFullYear(),
+      normalized.getMonth() + 1,
+      normalized.getDate()
+    );
+  }
+
+  const text = String(normalized).trim();
+
+  const iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/);
+  if (iso) return formatCalendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+
+  const slash = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (slash) return formatCalendarDate(Number(slash[3]), Number(slash[2]), Number(slash[1]));
+
+  const named = text.match(/^(\d{1,2})[-\s]([A-Za-z]{3,4})(?:[-\s](\d{2}|\d{4}))?$/);
+  if (named) {
+    const month = MONTHS.get(named[2].toLowerCase());
+    if (!month) return text;
+    let year = named[3] ? Number(named[3]) : inferredYear(row);
+    if (year < 100) year += year >= 70 ? 1900 : 2000;
+    return formatCalendarDate(year, month, Number(named[1])) || text;
+  }
+
+  return text;
+}
+
 function numericValue(value) {
   const normalized = blankToNull(value);
   if (normalized === null) return null;
@@ -75,7 +146,7 @@ export function serializeShipmentRow(row) {
       continue;
     }
     if (!DB_FIELDS.has(field) || field === 'custom_fields') continue;
-    if (DATE_FIELDS.has(field)) payload[field] = blankToNull(value);
+    if (DATE_FIELDS.has(field)) payload[field] = normalizeDateValue(value, row);
     else if (NUMERIC_FIELDS.has(field)) payload[field] = numericValue(value);
     else payload[field] = value === undefined ? null : value;
   }

@@ -5,7 +5,7 @@ import { buildImportPlan } from '../lib/importer.js';
 
 function readSheet(file) {
   return file.arrayBuffer().then((buffer) => {
-    const workbook = XLSX.read(buffer, { type: 'array' });
+    const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
     const sheetName = workbook.SheetNames[0];
     if (!sheetName) throw new Error('The workbook does not contain any sheets.');
 
@@ -13,7 +13,7 @@ function readSheet(file) {
     const matrix = XLSX.utils.sheet_to_json(worksheet, {
       header: 1,
       defval: '',
-      raw: false,
+      raw: true,
       blankrows: false
     });
 
