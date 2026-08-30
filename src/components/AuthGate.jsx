@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { KeyRound, LockKeyhole, Mail, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { hasSupabaseConfig, supabase } from '../lib/supabase.js';
 import { profileToAppUser, resolveProfileAccess } from '../lib/auth.js';
+import {
+  RECOVERY_COOLDOWN_MS,
+  friendlyRecoveryError,
+  getRecoveryRedirectUrl,
+  isPasswordRecoveryPath,
+  recoveryCooldownRemaining
+} from '../lib/passwordRecovery.js';
 
 function AuthFrame({ children }) {
   return (
@@ -46,6 +53,19 @@ export default function AuthGate({ children }) {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [recoveryCooldownUntil, setRecoveryCooldownUntil] = useState(0);
+  const recoveryRequestAtRef = useRef(0);
+
+  useEffect(() => {
+    if (!recoveryCooldownUntil) return undefined;
+    const remaining = recoveryCooldownUntil - Date.now();
+    if (remaining <= 0) {
+      setRecoveryCooldownUntil(0);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setRecoveryCooldownUntil(0), remaining);
+    return () => window.clearTimeout(timer);
+  }, [recoveryCooldownUntil]);
 
   const resolveSession = useCallback(async (session) => {
     if (!session?.user) {
@@ -109,16 +129,23 @@ export default function AuthGate({ children }) {
         setState({ status: 'error', email: '', message: error.message });
         return;
       }
+      if (isPasswordRecoveryPath(window.location.pathname) && data.session?.user) {
+        setNewPassword('');
+        setConfirmPassword('');
+        setState({ status: 'password-recovery', email: data.session.user.email || '', message: '' });
+        return;
+      }
       void resolveSession(data.session);
     });
 
     const { data: subscription } = supabase.auth.onAuthStateChange((event, session) => {
       window.setTimeout(() => {
         if (!active) return;
-        if (event === 'PASSWORD_RECOVERY') {
+        const recoveryRoute = isPasswordRecoveryPath(window.location.pathname);
+        if ((event === 'PASSWORD_RECOVERY' || recoveryRoute) && session?.user) {
           setNewPassword('');
           setConfirmPassword('');
-          setState({ status: 'password-recovery', email: session?.user?.email || '', message: '' });
+          setState({ status: 'password-recovery', email: session.user.email || '', message: '' });
           return;
         }
         void resolveSession(session);
@@ -154,13 +181,25 @@ export default function AuthGate({ children }) {
       setState((old) => ({ ...old, status: 'forgot-password', message: 'Enter your email address first.' }));
       return;
     }
+    const remaining = recoveryCooldownRemaining(recoveryRequestAtRef.current);
+    if (remaining > 0) {
+      setState((old) => ({
+        ...old,
+        status: 'forgot-password',
+        message: `A password email was just requested. Please wait ${Math.ceil(remaining / 1000)} seconds and check your inbox.`
+      }));
+      return;
+    }
+
+    recoveryRequestAtRef.current = Date.now();
+    setRecoveryCooldownUntil(recoveryRequestAtRef.current + RECOVERY_COOLDOWN_MS);
     setBusy(true);
     const { error } = await supabase.auth.resetPasswordForEmail(targetEmail, {
-      redirectTo: `${window.location.origin}/`
+      redirectTo: getRecoveryRedirectUrl(window.location.origin)
     });
     setBusy(false);
     if (error) {
-      setState({ status: 'forgot-password', email: targetEmail, message: error.message });
+      setState({ status: 'forgot-password', email: targetEmail, message: friendlyRecoveryError(error) });
       return;
     }
     setState({ status: 'recovery-sent', email: targetEmail, message: '' });
@@ -187,16 +226,22 @@ export default function AuthGate({ children }) {
     }
     const { data } = await supabase.auth.getSession();
     setBusy(false);
+    window.history.replaceState(null, '', '/');
     await resolveSession(data.session);
   }
 
   async function requestPasswordChange() {
     if (!supabase || !state.authUser?.email) throw new Error('No signed-in email is available.');
+    const remaining = recoveryCooldownRemaining(recoveryRequestAtRef.current);
+    if (remaining > 0) {
+      throw new Error(`A password email was just requested. Please wait ${Math.ceil(remaining / 1000)} seconds and check your inbox.`);
+    }
+    recoveryRequestAtRef.current = Date.now();
     const { error } = await supabase.auth.resetPasswordForEmail(state.authUser.email, {
-      redirectTo: `${window.location.origin}/`
+      redirectTo: getRecoveryRedirectUrl(window.location.origin)
     });
-    if (error) throw error;
-    return `Password-change email sent to ${state.authUser.email}.`;
+    if (error) throw new Error(friendlyRecoveryError(error));
+    return `Password-change email sent to ${state.authUser.email}. Check your inbox before requesting another.`;
   }
 
   async function signOut() {
@@ -266,7 +311,7 @@ export default function AuthGate({ children }) {
             <div className="auth-input-wrap"><Mail size={17} /><input type="email" value={email || state.email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></div>
           </label>
           {state.message && <div className="auth-message error">{state.message}</div>}
-          <button className="auth-primary-button" type="submit" disabled={busy}>{busy ? 'Sending…' : 'Send reset email'}</button>
+          <button className="auth-primary-button" type="submit" disabled={busy || recoveryCooldownUntil > Date.now()}>{busy ? 'Sending…' : 'Send reset email'}</button>
           <button className="auth-link-button" type="button" onClick={() => setState({ status: 'signed-out', email: '', message: '' })}>Back to sign in</button>
         </form>
       </AuthFrame>

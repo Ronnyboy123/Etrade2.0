@@ -1,6 +1,16 @@
-# Relora v10
+# Relora v10.1
 
-Relora is a customs brokerage shipment operations system built with React, Supabase, AG Grid, and Netlify. v10 keeps the v9 realtime/conflict/audit/archive safeguards and adds **email + password** sign-in, email password recovery, year-aware monthly reporting, and Manager/Admin bulk selection.
+Relora is a customs brokerage shipment operations system built with React, Supabase, AG Grid, and Netlify. v10.1 keeps the v9 realtime/conflict/audit/archive safeguards and adds **email + password** sign-in, email password recovery, year-aware monthly reporting, and Manager/Admin bulk selection.
+
+
+## What is fixed in v10.1
+
+- Password-recovery emails now return to the dedicated `/reset-password` route instead of the normal app homepage.
+- A valid recovery session stays on the **Set new password** form even when Supabase has already created a signed-in session.
+- After the password is updated, Relora removes the recovery route and resumes normal authorized access.
+- Password-email requests have a short client-side cooldown to reduce accidental repeat sends.
+- Supabase email rate-limit responses are translated into a clear message asking the user to wait and check the latest email first.
+- Netlify now rewrites SPA routes to `index.html`, so opening `/reset-password` directly does not return a 404.
 
 ## What is new in v10
 
@@ -91,11 +101,12 @@ In **Authentication → URL Configuration**, set the production Site URL and add
 
 ```text
 https://relora.netlify.app/**
+https://relora.netlify.app/reset-password
 http://localhost:5173/**
 http://localhost:5174/**
 ```
 
-Forgot-password and password-change emails return to the allowed Relora URL. For production use, configure reliable outgoing email/SMTP in Supabase so recovery emails reach company users consistently.
+Forgot-password and password-change emails return specifically to `/reset-password`. Keep that route (or the production `/**` wildcard) in the allowed redirect list. For production use, configure reliable outgoing email/SMTP in Supabase so recovery emails reach company users consistently.
 
 ## 5. Login and password flow
 
@@ -122,7 +133,9 @@ Supabase sends recovery email
 ↓
 Open link
 ↓
-Relora: Set new password
+Relora: /reset-password
+↓
+Set new password
 ```
 
 A signed-in user can also press **Password** in the top bar to send the same secure change link to their own email.
