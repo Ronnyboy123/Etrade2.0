@@ -1,4 +1,4 @@
--- Shipment Timeline v8 — Google-only login + approved user access + RLS
+-- Relora v10 — email/password authentication + approved user access + RLS
 -- Run this entire file in Supabase SQL Editor.
 
 -- 1) Company allow-list. Add an email here BEFORE giving the user application access.
@@ -98,6 +98,9 @@ create table if not exists public.shipments (
 
 alter table public.shipments add column if not exists custom_fields jsonb not null default '{}'::jsonb;
 
+create index if not exists shipments_service_month_idx on public.shipments (service_month);
+create index if not exists shipments_eta_idx on public.shipments (eta);
+
 create table if not exists public.shipment_activity (
   id bigint generated always as identity primary key,
   shipment_id uuid not null references public.shipments(id) on delete cascade,
@@ -152,7 +155,7 @@ grant execute on function public.current_user_role() to authenticated;
 grant execute on function public.current_user_team_id() to authenticated;
 grant execute on function public.current_user_declarant_name() to authenticated;
 
--- 5) Admit/sync a Google user only when their email exists in approved_users.
+-- 5) Admit/sync an authenticated user only when their email exists in approved_users.
 create or replace function public.claim_approved_profile()
 returns boolean
 language plpgsql

@@ -1,6 +1,6 @@
 import KpiCard from './KpiCard';
 
-export default function ManagementDashboard({ rows, onKpiClick }) {
+export default function ManagementDashboard({ rows, onKpiClick, periodLabel = 'Current Month' }) {
   const total = rows.length;
   const closed = rows.filter((r) => r.overall_status === 'CLOSED').length;
   const delayed = rows.filter((r) => r.overall_status === 'DELAYED').length;
@@ -32,7 +32,7 @@ export default function ManagementDashboard({ rows, onKpiClick }) {
     <section className="dashboard">
       <div className="report-title-row">
         <h1>RELORA – FINAL MANAGEMENT REPORT</h1>
-        <span>LIVE DATA</span>
+        <span>LIVE DATA · Viewing: {periodLabel}</span>
       </div>
 
       <div className="kpi-grid">

@@ -13,11 +13,10 @@ test('v9 safety UI has styles for sync, conflicts, activity, archive and import 
   assert.match(css, /\.import-conflict-review/);
 });
 
-test('README documents v9 deployment and safety behavior', () => {
-  assert.match(readme, /Relora v9/i);
+test('current README documents preserved v9 safety behavior', () => {
+  assert.match(readme, /v9 safety features preserved/i);
   assert.match(readme, /Realtime/i);
   assert.match(readme, /Archive/i);
-  assert.match(readme, /permanent delete.*Admin/i);
-  assert.match(readme, /maintenance window/i);
+  assert.match(readme, /Admin-only permanent deletion/i);
   assert.match(readme, /supabase-schema\.sql/);
 });

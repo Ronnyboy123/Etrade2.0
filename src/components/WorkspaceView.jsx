@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Archive, ArrowLeft, Download, Plus, Upload } from 'lucide-react';
 import ImportShipmentModal from './ImportShipmentModal';
 import ShipmentGrid from './ShipmentGrid';
-import { canAddRows, canArchiveRows, canImportRows } from '../lib/access.js';
+import { canAddRows, canArchiveRows, canBulkSelectAll, canImportRows } from '../lib/access.js';
 import { AUTOMATED_FIELDS } from '../lib/importer.js';
 import { downloadRowsAsExcel } from '../lib/exporter.js';
 
@@ -36,13 +36,15 @@ export default function WorkspaceView({
   onArchiveRows,
   onEditingChange,
   onOpenActivity,
-  suppressCreateActions = false
+  suppressCreateActions = false,
+  selectionScopeKey = ''
 }) {
   const [showImport, setShowImport] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [displayedIds, setDisplayedIds] = useState(rows.map((row) => row.id));
 
   const allowArchive = canArchiveRows(currentUser);
+  const allowBulkSelectAll = canBulkSelectAll(currentUser);
   const allowImport = !suppressCreateActions && canImportRows(currentUser);
   const allowAdd = !suppressCreateActions && canAddRows(currentUser);
 
@@ -50,6 +52,10 @@ export default function WorkspaceView({
     const valid = new Set(allRows.map((row) => row.id));
     setSelectedIds((old) => old.filter((id) => valid.has(id)));
   }, [allRows]);
+
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [selectionScopeKey]);
 
   const displayedRows = useMemo(() => {
     const byId = new Map(rows.map((row) => [row.id, row]));
@@ -102,6 +108,12 @@ export default function WorkspaceView({
         <div className="actions">
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search columns or shipments..." />
           {searchTargetField && <span className="column-jump-pill">Column: {searchTargetLabel}</span>}
+          {allowBulkSelectAll && displayedIds.length > 0 && selectedIds.length < displayedIds.length && (
+            <button className="secondary bulk-select-button" onClick={() => setSelectedIds(displayedIds)}>Select all {displayedIds.length} results</button>
+          )}
+          {allowBulkSelectAll && displayedIds.length > 0 && selectedIds.length === displayedIds.length && (
+            <button className="secondary bulk-select-button" onClick={() => setSelectedIds([])}>Clear selection</button>
+          )}
           {selectedIds.length > 0 && allowArchive && (
             <>
               <span className="selected-count">{selectedIds.length} selected</span>

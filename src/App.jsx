@@ -5,6 +5,7 @@ import ActivityPanel from './components/ActivityPanel';
 import ArchivedView from './components/ArchivedView';
 import ConflictDialog from './components/ConflictDialog';
 import ManagementDashboard from './components/ManagementDashboard';
+import MonthSelector from './components/MonthSelector';
 import SyncStatus from './components/SyncStatus';
 import TeamWorkspaces from './components/TeamWorkspaces';
 import WorkspaceView from './components/WorkspaceView';
@@ -37,13 +38,14 @@ import {
 } from './lib/dataApi.js';
 import { applyRealtimeEvent, reconcileRealtimeEvent, subscribeToShipmentChanges } from './lib/realtime.js';
 import { nextSyncState } from './lib/syncState.js';
+import { ALL_TIME, currentMonthKey, filterRowsByMonth, formatMonthLabel, getAvailableMonthKeys } from './lib/monthly.js';
 
-function newShipment(assignedTo = '', teamId = '', assignedUserId = '') {
+function newShipment(assignedTo = '', teamId = '', assignedUserId = '', serviceMonth = '') {
   return {
     assigned_user_id: assignedUserId || null,
     assigned_to: assignedTo,
     team_id: teamId,
-    validated_manifest_date: '', service_month: '', job_file_number: '', customer: '', shipper: '', mode: '',
+    validated_manifest_date: '', service_month: serviceMonth, job_file_number: '', customer: '', shipper: '', mode: '',
     house_awb_bl: '', master_awb_bl: '', pre_alert_shipping_documents: '', eta: '', cw_air_cbm_lcl: '',
     number_of_container: 0, description: '', dt_computation: '', week_no: '', fundcast: '', ata: '', port_of_entry: '',
     location_of_goods: '', lodgement: '', assessed: '', paid: '', entry_no: '', selectivity_color: '', portal_submission: '',
@@ -67,8 +69,9 @@ function initialPageFor(user) {
   return 'my-workspace';
 }
 
-function AuthenticatedApp({ currentUser, authUser, signOut }) {
+function AuthenticatedApp({ currentUser, authUser, signOut, requestPasswordChange }) {
   const [page, setPage] = useState(() => initialPageFor(currentUser));
+  const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey());
   const [rows, setRows] = useState([]);
   const [archivedRows, setArchivedRows] = useState([]);
   const [profiles, setProfiles] = useState([]);
@@ -88,6 +91,7 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
   const [activityRows, setActivityRows] = useState([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState('');
+  const [accountNotice, setAccountNotice] = useState('');
 
   const activeEditRef = useRef(null);
   const pendingRemoteRef = useRef(null);
@@ -98,6 +102,16 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
   const showTeams = canAccessTeamWorkspaces(currentUser);
   const showArchived = canArchiveRows(currentUser);
   const showActivity = canViewActivity(currentUser);
+
+  async function handlePasswordChangeRequest() {
+    setAccountNotice('');
+    try {
+      const message = await requestPasswordChange();
+      setAccountNotice(message);
+    } catch (error) {
+      setAccountNotice(error?.message || 'Unable to send password-change email.');
+    }
+  }
 
   function markSync(event) {
     setSyncState((old) => nextSyncState(old, event));
@@ -216,13 +230,17 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
     }
   }, [currentUser, page, showDashboard, showMaster, showTeams, showArchived]);
 
+  const monthKeys = useMemo(() => getAvailableMonthKeys(rows), [rows]);
+  const monthScopedRows = useMemo(() => filterRowsByMonth(rows, selectedMonth), [rows, selectedMonth]);
+  const monthScopedArchivedRows = useMemo(() => filterRowsByMonth(archivedRows, selectedMonth), [archivedRows, selectedMonth]);
+  const reportingPeriodLabel = formatMonthLabel(selectedMonth);
   const workers = useMemo(() => profiles.filter((user) => user.role === 'employee'), [profiles]);
   const teamLeaders = useMemo(() => profiles.filter((user) => user.role === 'team_lead'), [profiles]);
-  const dashboardRows = useMemo(() => getVisibleRowsForUser(rows, currentUser), [rows, currentUser]);
-  const myRows = useMemo(() => getVisibleRowsForUser(rows, currentUser), [rows, currentUser]);
+  const dashboardRows = useMemo(() => getVisibleRowsForUser(monthScopedRows, currentUser), [monthScopedRows, currentUser]);
+  const myRows = useMemo(() => getVisibleRowsForUser(monthScopedRows, currentUser), [monthScopedRows, currentUser]);
   const teamWorkspaceRows = useMemo(
-    () => selectedWorker ? getRowsForDeclarant(rows, selectedWorker.declarantName) : [],
-    [rows, selectedWorker]
+    () => selectedWorker ? getRowsForDeclarant(monthScopedRows, selectedWorker.declarantName) : [],
+    [monthScopedRows, selectedWorker]
   );
   const accessibleWorkers = useMemo(() => getAccessibleWorkers(workers, currentUser), [workers, currentUser]);
   const accessibleLeaders = useMemo(() => {
@@ -259,7 +277,8 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
     try {
       requireOnline();
       markSync('SAVE_START');
-      const saved = await insertShipment(applyAutomation(newShipment(declarantName, teamId, assignedUserId)));
+      const monthForNewShipment = selectedMonth === ALL_TIME ? currentMonthKey() : selectedMonth;
+      const saved = await insertShipment(applyAutomation(newShipment(declarantName, teamId, assignedUserId, formatMonthLabel(monthForNewShipment))));
       setRows((old) => [applyAutomation(saved), ...old.filter((row) => row.id !== saved.id)]);
       markSync('SAVE_SUCCESS');
     } catch (error) {
@@ -465,6 +484,7 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
         layout={layout}
         currentUser={currentUser}
         suppressCreateActions={suppressCreateActions}
+        selectionScopeKey={`${selectedMonth}:${layoutKey}:${search}`}
         searchTargetField={searchResolution.type === 'column' ? searchResolution.field : ''}
         searchTargetLabel={searchResolution.type === 'column' ? searchResolution.label : ''}
         onRowChanged={handleRowChanged}
@@ -487,6 +507,7 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
             <strong>{currentUser.name}</strong>
             <span>{roleLabel(currentUser.role)}{authUser?.email ? ` • ${authUser.email}` : ''}</span>
           </div>
+          <button className="password-button" onClick={() => void handlePasswordChangeRequest()}>Password</button>
           <button className="signout-button" onClick={signOut}>Sign Out</button>
         </div>
       </header>
@@ -499,6 +520,14 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
         {currentUser.role === 'employee' && <button className="active" onClick={() => setPage('my-workspace')}><FileSpreadsheet size={16} /> My Workspace</button>}
       </nav>
 
+      <MonthSelector
+        value={selectedMonth}
+        monthKeys={monthKeys}
+        allowAllTime={showDashboard}
+        onChange={(value) => { setSelectedMonth(value); setSearch(''); setDashboardList(null); }}
+      />
+
+      {accountNotice && <div className="account-notice">{accountNotice}</div>}
       {mutationError && <div className="mutation-error">{mutationError}</div>}
       {pendingRemote && activeEdit && (
         <div className="remote-edit-warning">This shipment changed elsewhere while you were editing. Relora will check the latest server value when you save.</div>
@@ -512,6 +541,7 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
           {page === 'dashboard' && showDashboard && (
             <ManagementDashboard
               rows={dashboardRows}
+              periodLabel={reportingPeriodLabel}
               onKpiClick={(key, label) => { setDashboardList({ key, label }); setSearch(''); setPage('dashboard-list'); }}
             />
           )}
@@ -533,7 +563,7 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
             subtitle: currentUser.role === 'portal'
               ? 'Master view with limited Portal / Broker editing access.'
               : 'All shipment records you are authorized to view.',
-            sourceRows: rows,
+            sourceRows: monthScopedRows,
             assignedTo: '',
             assignedUserId: '',
             teamId: '',
@@ -541,7 +571,7 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
           })}
 
           {page === 'team' && showTeams && (
-            <TeamWorkspaces workers={accessibleWorkers} leaders={accessibleLeaders} rows={rows} onOpenWorkspace={openTeamWorkspace} />
+            <TeamWorkspaces workers={accessibleWorkers} leaders={accessibleLeaders} rows={monthScopedRows} onOpenWorkspace={openTeamWorkspace} />
           )}
 
           {page === 'team-workspace' && showTeams && selectedWorker && renderWorkspace({
@@ -567,7 +597,7 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
 
           {page === 'archived' && showArchived && (
             <ArchivedView
-              rows={archivedRows}
+              rows={monthScopedArchivedRows}
               currentUser={currentUser}
               onRestore={handleRestoreRows}
               onPermanentDelete={handlePermanentDeleteRows}
@@ -599,8 +629,8 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
 export default function App() {
   return (
     <AuthGate>
-      {({ currentUser, authUser, signOut }) => (
-        <AuthenticatedApp currentUser={currentUser} authUser={authUser} signOut={signOut} />
+      {({ currentUser, authUser, signOut, requestPasswordChange }) => (
+        <AuthenticatedApp currentUser={currentUser} authUser={authUser} signOut={signOut} requestPasswordChange={requestPasswordChange} />
       )}
     </AuthGate>
   );

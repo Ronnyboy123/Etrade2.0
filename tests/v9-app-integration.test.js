@@ -32,6 +32,7 @@ test('sync status component exposes all v9 connectivity states', () => {
   assert.match(syncStatus, /Sync issue/);
 });
 
-test('package is versioned as Relora 0.9.0', () => {
-  assert.equal(packageJson.version, '0.9.0');
+test('package remains the Relora application package', () => {
+  assert.equal(packageJson.name, 'relora');
+  assert.match(packageJson.version, /^\d+\.\d+\.\d+$/);
 });

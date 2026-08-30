@@ -1535,3 +1535,27 @@ body {
 
 .primary-button:disabled,
 .ghost-button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Relora v10 password authentication */
+.auth-field { display: grid; gap: 6px; margin: 14px 0; font-size: 12px; font-weight: 800; color: #244563; text-align: left; }
+.auth-input-wrap { display: flex; align-items: center; gap: 9px; min-height: 44px; border: 1px solid #cbd8e5; border-radius: 9px; padding: 0 12px; background: #fff; color: #58738d; }
+.auth-input-wrap:focus-within { border-color: #1c5f9f; box-shadow: 0 0 0 3px rgba(28,95,159,.12); }
+.auth-input-wrap input { width: 100%; border: 0; outline: 0; padding: 11px 0; font: inherit; color: #16344f; background: transparent; }
+.auth-primary-button { width: 100%; min-height: 44px; border: 0; border-radius: 9px; background: #173f6d; color: #fff; font-weight: 900; cursor: pointer; margin-top: 8px; }
+.auth-primary-button:disabled { opacity: .6; cursor: wait; }
+.auth-primary-button.secondary-auth-button { background: #fff; color: #173b64; border: 1px solid #b9cce0; }
+.auth-link-button { border: 0; background: transparent; color: #175f9f; font-weight: 800; cursor: pointer; padding: 10px; }
+.auth-message { margin-top: 10px; padding: 9px 11px; border-radius: 7px; font-size: 12px; }
+.auth-message.error { background: #fff2f0; color: #9a2d20; border: 1px solid #f0c1ba; }
+.password-button { border: 1px solid rgba(255,255,255,.32); color: white; background: rgba(255,255,255,.08); border-radius: 8px; padding: 9px 12px; font-weight: 800; cursor: pointer; }
+.account-notice { margin: 10px 18px 0; padding: 10px 13px; border-radius: 8px; background: #eef7ff; border: 1px solid #bcd8ef; color: #194e79; font-size: 13px; }
+
+/* Relora v10 reporting month */
+.month-selector-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 12px 18px 0; padding: 10px 13px; border: 1px solid #d7e2ee; border-radius: 10px; background: #fff; }
+.month-selector-label { display: flex; align-items: center; gap: 9px; color: #244d72; }
+.month-selector-label > div { display: grid; gap: 1px; }
+.month-selector-label span { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; font-weight: 800; color: #6d8499; }
+.month-selector-label strong { font-size: 13px; }
+.month-selector { min-width: 180px; border: 1px solid #bfcfdd; border-radius: 8px; padding: 9px 34px 9px 10px; background: #f8fbfe; color: #173c60; font-weight: 800; }
+@media (max-width: 720px) { .month-selector-bar { align-items: stretch; flex-direction: column; } .month-selector { width: 100%; } }
+.bulk-select-button { white-space: nowrap; }

@@ -94,6 +94,10 @@ export function canArchiveRows(user) {
   return Boolean(user && ['team_lead', 'manager', 'admin'].includes(user.role));
 }
 
+export function canBulkSelectAll(user) {
+  return Boolean(user && ['manager', 'admin'].includes(user.role));
+}
+
 export function canRestoreRows(user) {
   return canArchiveRows(user);
 }
