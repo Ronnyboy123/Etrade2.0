@@ -1,7 +1,35 @@
-# Relora v10.1
+# Relora v10.3
 
-Relora is a customs brokerage shipment operations system built with React, Supabase, AG Grid, and Netlify. v10.1 keeps the v9 realtime/conflict/audit/archive safeguards and adds **email + password** sign-in, email password recovery, year-aware monthly reporting, and Manager/Admin bulk selection.
 
+## v10.3 organization branding
+
+Relora remains the product/system name. The sign-in screen and authenticated header now identify **a. hartrodt** as the organization using the internal **Shipment & Customs Operations** portal. No database, authentication, monthly reporting, shipment, or permission logic changed from v10.2.
+Relora is a customs brokerage shipment operations system built with React, Supabase, AG Grid, and Netlify. v10.2 keeps the v9 realtime/conflict/audit/archive safeguards and adds **email + password** sign-in, email password recovery, year-aware monthly reporting, and Manager/Admin bulk selection.
+
+
+
+## What is fixed in v10.2
+
+- Password recovery now uses a **6-digit recovery code** instead of depending on a clickable reset link.
+- Relora verifies the code with Supabase using `verifyOtp({ email, token, type: 'recovery' })` before showing the new-password form.
+- This avoids the common email-prefetch problem where corporate mail security opens a one-time recovery link before the user does.
+- Invalid/expired codes and email/verification rate limits are translated into user-friendly messages.
+- After a successful password change, Relora signs the user out and asks them to sign in again with the new password.
+- No database migration is required for v10.2.
+
+### Required Supabase recovery email template
+
+In **Supabase → Authentication → Email Templates → Reset Password**, replace the clickable recovery-link content with a recovery-code template that contains `{{ .Token }}`. For example:
+
+```html
+<h2>Reset your Relora password</h2>
+<p>Your 6-digit recovery code is:</p>
+<p style="font-size: 28px; font-weight: 700; letter-spacing: 6px;">{{ .Token }}</p>
+<p>Enter this code in Relora. Use only the most recent code you requested.</p>
+<p>If you did not request a password reset, you can ignore this email.</p>
+```
+
+Do **not** make `{{ .ConfirmationURL }}` the primary reset action for the v10.2 recovery flow. Relora expects the user to type the OTP shown by `{{ .Token }}`.
 
 ## What is fixed in v10.1
 
@@ -15,8 +43,8 @@ Relora is a customs brokerage shipment operations system built with React, Supab
 ## What is new in v10
 
 - **Email + password login** replaces the Google login button.
-- **Forgot Password** sends a secure recovery link to the user's registered email through Supabase Auth.
-- A recovery link opens Relora's **Set new password** screen. Passwords are never stored in `approved_users`, `profiles`, or `shipments`.
+- **Forgot Password** sends a secure 6-digit recovery code to the user's registered email through Supabase Auth.
+- The user verifies the recovery code in Relora before the **Set new password** screen is unlocked. Passwords are never stored in `approved_users`, `profiles`, or `shipments`.
 - Signed-in users can press **Password** to send a password-change email to their own account.
 - **Monthly reporting** defaults to the current month and is year-aware.
 - Official shipment month uses **Service Month** first, with **fallback to ETA** when Service Month is blank/unusable.
@@ -106,7 +134,7 @@ http://localhost:5173/**
 http://localhost:5174/**
 ```
 
-Forgot-password and password-change emails return specifically to `/reset-password`. Keep that route (or the production `/**` wildcard) in the allowed redirect list. For production use, configure reliable outgoing email/SMTP in Supabase so recovery emails reach company users consistently.
+v10.2 recovery no longer depends on a clickable redirect link. Keep your existing redirect allow-list for backward compatibility, but configure the **Reset Password** email template to show `{{ .Token }}` and configure reliable SMTP for production delivery.
 
 ## 5. Login and password flow
 
@@ -122,23 +150,27 @@ approved_users + profile/RLS authorization check
 Authorized workspace
 ```
 
-Forgot Password:
+Forgot Password / Change Password:
 
 ```text
 Forgot Password
 ↓
 Enter approved account email
 ↓
-Supabase sends recovery email
+Supabase sends a 6-digit recovery code
 ↓
-Open link
+Enter the code in Relora
 ↓
-Relora: /reset-password
+Relora verifies the code as type: recovery
 ↓
-Set new password
+Set new password + confirm password
+↓
+Password changed
+↓
+Sign in again
 ```
 
-A signed-in user can also press **Password** in the top bar to send the same secure change link to their own email.
+A signed-in user can also press **Password** in the top bar. Relora sends the same recovery code to their own registered email and opens the code-verification screen.
 
 ## 6. Monthly reporting rule
 
@@ -194,4 +226,4 @@ VITE_SUPABASE_PUBLISHABLE_KEY
 
 Then deploy from the GitHub-connected project. After deployment, hard-refresh users (`Ctrl + Shift + R`).
 
-Recommended acceptance checks: email/password login, Forgot Password email, recovery link/set-new-password, current month vs upcoming month totals, historical month switching, All Time management view, Select all results + Archive, realtime two-browser edits, conflict dialog, Activity History, Archive/Restore, and Admin-only permanent delete.
+Recommended acceptance checks: email/password login, Forgot Password recovery-code email, code verification/set-new-password, current month vs upcoming month totals, historical month switching, All Time management view, Select all results + Archive, realtime two-browser edits, conflict dialog, Activity History, Archive/Restore, and Admin-only permanent delete.

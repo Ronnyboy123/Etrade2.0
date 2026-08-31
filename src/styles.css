@@ -48,6 +48,32 @@ input {
   margin-top: 3px;
 }
 
+.topbar-branding {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.topbar-organization {
+  display: grid;
+  gap: 2px;
+  padding-left: 18px;
+  border-left: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.topbar-organization span {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.68;
+}
+
+.topbar-organization strong {
+  font-size: 14px;
+  letter-spacing: 0.01em;
+}
+
 .user-pill {
   background: rgba(255, 255, 255, 0.12);
   padding: 8px 12px;
@@ -1184,6 +1210,30 @@ body {
   margin: 5px 0 10px;
   font-size: clamp(34px, 4vw, 56px);
   line-height: 1;
+}
+
+.auth-organization {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: fit-content;
+  margin: 12px 0 14px;
+  padding: 7px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.auth-organization span {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.auth-organization strong {
+  font-size: 14px;
 }
 
 .auth-brand-panel p {

@@ -5,8 +5,10 @@ import { profileToAppUser, resolveProfileAccess } from '../lib/auth.js';
 import {
   RECOVERY_COOLDOWN_MS,
   friendlyRecoveryError,
-  getRecoveryRedirectUrl,
+  friendlyRecoveryVerificationError,
   isPasswordRecoveryPath,
+  isRecoveryCodeValid,
+  normalizeRecoveryCode,
   recoveryCooldownRemaining
 } from '../lib/passwordRecovery.js';
 
@@ -16,8 +18,9 @@ function AuthFrame({ children }) {
       <div className="auth-brand-panel">
         <div className="auth-brand-mark">RL</div>
         <div>
-          <div className="auth-eyebrow">SHIPMENT & CUSTOMS OPERATIONS</div>
+          <div className="auth-eyebrow">INTERNAL SHIPMENT & CUSTOMS OPERATIONS</div>
           <h1>Relora</h1>
+          <div className="auth-organization"><span>Organization</span><strong>a. hartrodt</strong></div>
           <p>Secure team workspaces, shipment monitoring, and management reporting in one place.</p>
         </div>
         <div className="auth-security-note"><ShieldCheck size={17} /> Access is restricted to approved company users.</div>
@@ -52,6 +55,7 @@ export default function AuthGate({ children }) {
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [recoveryCooldownUntil, setRecoveryCooldownUntil] = useState(0);
   const recoveryRequestAtRef = useRef(0);
@@ -194,15 +198,40 @@ export default function AuthGate({ children }) {
     recoveryRequestAtRef.current = Date.now();
     setRecoveryCooldownUntil(recoveryRequestAtRef.current + RECOVERY_COOLDOWN_MS);
     setBusy(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(targetEmail, {
-      redirectTo: getRecoveryRedirectUrl(window.location.origin)
-    });
+    const { error } = await supabase.auth.resetPasswordForEmail(targetEmail);
     setBusy(false);
     if (error) {
       setState({ status: 'forgot-password', email: targetEmail, message: friendlyRecoveryError(error) });
       return;
     }
-    setState({ status: 'recovery-sent', email: targetEmail, message: '' });
+    setEmail(targetEmail);
+    setRecoveryCode('');
+    setState({ status: 'recovery-code', email: targetEmail, message: '' });
+  }
+
+  async function verifyRecoveryCode(event) {
+    event?.preventDefault?.();
+    if (!supabase || busy) return;
+    if (!isRecoveryCodeValid(recoveryCode)) {
+      setState((old) => ({ ...old, status: 'recovery-code', message: 'Enter the complete 6-digit recovery code from your email.' }));
+      return;
+    }
+
+    setBusy(true);
+    const { error } = await supabase.auth.verifyOtp({
+      email: state.email,
+      token: recoveryCode,
+      type: 'recovery'
+    });
+    setBusy(false);
+    if (error) {
+      setState((old) => ({ ...old, status: 'recovery-code', message: friendlyRecoveryVerificationError(error) }));
+      return;
+    }
+
+    setNewPassword('');
+    setConfirmPassword('');
+    setState((old) => ({ ...old, status: 'password-recovery', message: '' }));
   }
 
   async function setRecoveredPassword(event) {
@@ -224,10 +253,16 @@ export default function AuthGate({ children }) {
       setState((old) => ({ ...old, message: error.message }));
       return;
     }
-    const { data } = await supabase.auth.getSession();
+    await supabase.auth.signOut();
     setBusy(false);
+    setPassword('');
+    setRecoveryCode('');
     window.history.replaceState(null, '', '/');
-    await resolveSession(data.session);
+    setState({
+      status: 'signed-out',
+      email: state.email || '',
+      message: 'Password changed successfully. Sign in with your new password.'
+    });
   }
 
   async function requestPasswordChange() {
@@ -237,11 +272,13 @@ export default function AuthGate({ children }) {
       throw new Error(`A password email was just requested. Please wait ${Math.ceil(remaining / 1000)} seconds and check your inbox.`);
     }
     recoveryRequestAtRef.current = Date.now();
-    const { error } = await supabase.auth.resetPasswordForEmail(state.authUser.email, {
-      redirectTo: getRecoveryRedirectUrl(window.location.origin)
-    });
+    const targetEmail = state.authUser.email.trim().toLowerCase();
+    const { error } = await supabase.auth.resetPasswordForEmail(targetEmail);
     if (error) throw new Error(friendlyRecoveryError(error));
-    return `Password-change email sent to ${state.authUser.email}. Check your inbox before requesting another.`;
+    setEmail(targetEmail);
+    setRecoveryCode('');
+    setState({ status: 'recovery-code', email: targetEmail, message: '' });
+    return `Recovery code sent to ${targetEmail}.`;
   }
 
   async function signOut() {
@@ -281,6 +318,46 @@ export default function AuthGate({ children }) {
     );
   }
 
+  if (state.status === 'recovery-code') {
+    return (
+      <AuthFrame>
+        <form className="auth-card" onSubmit={verifyRecoveryCode}>
+          <div className="auth-lock-icon"><KeyRound size={24} /></div>
+          <div className="auth-eyebrow dark">VERIFY RECOVERY CODE</div>
+          <h2>Enter 6-digit code</h2>
+          <p>We sent a 6-digit recovery code to <strong>{state.email}</strong>. Use the most recent code from your email.</p>
+          <label className="auth-field">
+            <span>Recovery code</span>
+            <div className="auth-input-wrap">
+              <KeyRound size={17} />
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={recoveryCode}
+                onChange={(event) => setRecoveryCode(normalizeRecoveryCode(event.target.value))}
+                placeholder="123456"
+                required
+              />
+            </div>
+          </label>
+          {state.message && <div className="auth-message error">{state.message}</div>}
+          <button className="auth-primary-button" type="submit" disabled={busy}>{busy ? 'Verifying…' : 'Verify code'}</button>
+          <button
+            className="auth-link-button"
+            type="button"
+            disabled={busy || recoveryCooldownUntil > Date.now()}
+            onClick={() => void sendRecoveryEmail()}
+          >
+            Resend code
+          </button>
+          <button className="auth-link-button" type="button" onClick={() => { setRecoveryCode(''); setState({ status: 'signed-out', email: state.email, message: '' }); }}>Back to sign in</button>
+        </form>
+      </AuthFrame>
+    );
+  }
+
   if (state.status === 'password-recovery') {
     return (
       <AuthFrame>
@@ -305,32 +382,19 @@ export default function AuthGate({ children }) {
           <div className="auth-lock-icon"><Mail size={24} /></div>
           <div className="auth-eyebrow dark">ACCOUNT RECOVERY</div>
           <h2>Forgot password?</h2>
-          <p>Enter your approved Relora email. We'll send a secure password-reset link.</p>
+          <p>Enter your approved Relora email. We'll send a 6-digit recovery code.</p>
           <label className="auth-field">
             <span>Email</span>
             <div className="auth-input-wrap"><Mail size={17} /><input type="email" value={email || state.email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></div>
           </label>
           {state.message && <div className="auth-message error">{state.message}</div>}
-          <button className="auth-primary-button" type="submit" disabled={busy || recoveryCooldownUntil > Date.now()}>{busy ? 'Sending…' : 'Send reset email'}</button>
+          <button className="auth-primary-button" type="submit" disabled={busy || recoveryCooldownUntil > Date.now()}>{busy ? 'Sending…' : 'Send recovery code'}</button>
           <button className="auth-link-button" type="button" onClick={() => setState({ status: 'signed-out', email: '', message: '' })}>Back to sign in</button>
         </form>
       </AuthFrame>
     );
   }
 
-  if (state.status === 'recovery-sent') {
-    return (
-      <AuthFrame>
-        <div className="auth-card">
-          <Mail className="auth-state-icon" size={32} />
-          <div className="auth-eyebrow dark">EMAIL SENT</div>
-          <h2>Check your inbox</h2>
-          <p>We sent a password-reset link to <strong>{state.email}</strong>. Open that link to set a new password.</p>
-          <button className="auth-primary-button" onClick={() => { setEmail(state.email); setState({ status: 'signed-out', email: state.email, message: '' }); }}>Back to sign in</button>
-        </div>
-      </AuthFrame>
-    );
-  }
 
   if (state.status === 'denied') {
     return (

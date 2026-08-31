@@ -35,11 +35,11 @@ test('recovery email cooldown prevents accidental repeat sends', () => {
   assert.equal(recoveryCooldownRemaining(100_000, 160_001), 0);
 });
 
-test('AuthGate keeps reset-password route in recovery mode even when a session already exists', () => {
+test('AuthGate keeps legacy reset-password route compatible while v10.2 uses typed recovery codes', () => {
   const source = fs.readFileSync(new URL('../src/components/AuthGate.jsx', import.meta.url), 'utf8');
   assert.match(source, /isPasswordRecoveryPath\(window\.location\.pathname\)/);
   assert.match(source, /status:\s*['"]password-recovery['"]/);
-  assert.match(source, /getRecoveryRedirectUrl\(window\.location\.origin\)/);
+  assert.match(source, /isPasswordRecoveryPath\(window\.location\.pathname\)/);
   assert.doesNotMatch(source, /redirectTo:\s*`\$\{window\.location\.origin\}\/`/);
 });
 

@@ -500,7 +500,10 @@ function AuthenticatedApp({ currentUser, authUser, signOut, requestPasswordChang
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div><div className="brand">RELORA</div><div className="subtitle">Shipment & Customs Operations</div></div>
+        <div className="topbar-branding">
+          <div><div className="brand">RELORA</div><div className="subtitle">Internal Shipment & Customs Operations</div></div>
+          <div className="topbar-organization"><span>Organization</span><strong>a. hartrodt</strong></div>
+        </div>
         <div className="topbar-actions">
           <SyncStatus state={syncState} />
           <div className="user-pill">
