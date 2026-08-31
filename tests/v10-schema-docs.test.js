@@ -4,9 +4,9 @@ import fs from 'node:fs';
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
 
-test('Relora package is version 1.0.3', () => {
+test('Relora package is version 1.0.4', () => {
   const pkg = JSON.parse(read('../package.json'));
-  assert.equal(pkg.version, '1.0.3');
+  assert.equal(pkg.version, '1.0.4');
 });
 
 test('schema stays approved-user/RLS based and does not store account passwords', () => {
@@ -18,10 +18,11 @@ test('schema stays approved-user/RLS based and does not store account passwords'
   assert.doesNotMatch(sql, /Google-only login/i);
 });
 
-test('README documents password login, recovery email, monthly reporting and bulk archive behavior', () => {
+test('README documents password login, admin-provisioned credentials, monthly reporting and bulk archive behavior', () => {
   const readme = read('../README.md');
   assert.match(readme, /email \+ password/i);
-  assert.match(readme, /Forgot Password/i);
+  assert.match(readme, /temporary password|provided password/i);
+  assert.match(readme, /no Forgot Password/i);
   assert.match(readme, /Service Month/i);
   assert.match(readme, /fallback.*ETA/i);
   assert.match(readme, /September.*not.*August/i);

@@ -69,7 +69,7 @@ function initialPageFor(user) {
   return 'my-workspace';
 }
 
-function AuthenticatedApp({ currentUser, authUser, signOut, requestPasswordChange }) {
+function AuthenticatedApp({ currentUser, authUser, signOut }) {
   const [page, setPage] = useState(() => initialPageFor(currentUser));
   const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey());
   const [rows, setRows] = useState([]);
@@ -91,7 +91,6 @@ function AuthenticatedApp({ currentUser, authUser, signOut, requestPasswordChang
   const [activityRows, setActivityRows] = useState([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState('');
-  const [accountNotice, setAccountNotice] = useState('');
 
   const activeEditRef = useRef(null);
   const pendingRemoteRef = useRef(null);
@@ -102,16 +101,6 @@ function AuthenticatedApp({ currentUser, authUser, signOut, requestPasswordChang
   const showTeams = canAccessTeamWorkspaces(currentUser);
   const showArchived = canArchiveRows(currentUser);
   const showActivity = canViewActivity(currentUser);
-
-  async function handlePasswordChangeRequest() {
-    setAccountNotice('');
-    try {
-      const message = await requestPasswordChange();
-      setAccountNotice(message);
-    } catch (error) {
-      setAccountNotice(error?.message || 'Unable to send password-change email.');
-    }
-  }
 
   function markSync(event) {
     setSyncState((old) => nextSyncState(old, event));
@@ -510,7 +499,6 @@ function AuthenticatedApp({ currentUser, authUser, signOut, requestPasswordChang
             <strong>{currentUser.name}</strong>
             <span>{roleLabel(currentUser.role)}{authUser?.email ? ` • ${authUser.email}` : ''}</span>
           </div>
-          <button className="password-button" onClick={() => void handlePasswordChangeRequest()}>Password</button>
           <button className="signout-button" onClick={signOut}>Sign Out</button>
         </div>
       </header>
@@ -530,7 +518,6 @@ function AuthenticatedApp({ currentUser, authUser, signOut, requestPasswordChang
         onChange={(value) => { setSelectedMonth(value); setSearch(''); setDashboardList(null); }}
       />
 
-      {accountNotice && <div className="account-notice">{accountNotice}</div>}
       {mutationError && <div className="mutation-error">{mutationError}</div>}
       {pendingRemote && activeEdit && (
         <div className="remote-edit-warning">This shipment changed elsewhere while you were editing. Relora will check the latest server value when you save.</div>
@@ -632,8 +619,8 @@ function AuthenticatedApp({ currentUser, authUser, signOut, requestPasswordChang
 export default function App() {
   return (
     <AuthGate>
-      {({ currentUser, authUser, signOut, requestPasswordChange }) => (
-        <AuthenticatedApp currentUser={currentUser} authUser={authUser} signOut={signOut} requestPasswordChange={requestPasswordChange} />
+      {({ currentUser, authUser, signOut }) => (
+        <AuthenticatedApp currentUser={currentUser} authUser={authUser} signOut={signOut} />
       )}
     </AuthGate>
   );

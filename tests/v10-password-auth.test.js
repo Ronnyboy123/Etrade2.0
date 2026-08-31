@@ -12,19 +12,9 @@ test('Relora v10 uses email/password login instead of Google OAuth', () => {
   assert.doesNotMatch(source, /Continue with Google/);
 });
 
-test('forgot password and recovery flow use Supabase email recovery APIs', () => {
-  const source = fs.readFileSync(new URL('../src/components/AuthGate.jsx', import.meta.url), 'utf8');
-  assert.match(source, /resetPasswordForEmail/);
-  assert.match(source, /PASSWORD_RECOVERY/);
-  assert.match(source, /updateUser\(\{\s*password/);
-  assert.match(source, /Forgot password/i);
-  assert.match(source, /Set new password/i);
-});
-
-test('authenticated app receives an action that sends password change email', () => {
+test('Relora v10.4 has no self-service password recovery action', () => {
   const auth = fs.readFileSync(new URL('../src/components/AuthGate.jsx', import.meta.url), 'utf8');
   const app = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  assert.match(auth, /requestPasswordChange/);
-  assert.match(app, /requestPasswordChange/);
-  assert.match(app, /Password/);
+  assert.doesNotMatch(auth, /resetPasswordForEmail|verifyOtp|PASSWORD_RECOVERY|Forgot password/i);
+  assert.doesNotMatch(app, /requestPasswordChange|password-button/);
 });
