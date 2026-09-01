@@ -1,4 +1,12 @@
-# Relora v11.0
+# Relora v11.1
+
+
+## v11.1 wide-sheet import hardening
+
+- Bounds SheetJS reads to the actual populated header width instead of trusting oversized/corrupted Excel `!ref` ranges.
+- Prevents workbooks with formatting that stretches to columns like `XFD` from hanging on **Reading file...**.
+- Keeps v11.0 multi-sheet selection, source-sheet tracing, duplicate/archive review, and date normalization unchanged.
+- No Supabase migration is required for v11.1.
 
 ## v11.0 multi-sheet import
 - Excel workbooks can now import from multiple worksheets in one upload, including workbooks with 10 or more tabs.

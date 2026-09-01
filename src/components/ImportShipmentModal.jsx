@@ -5,7 +5,8 @@ import {
   buildImportPlan,
   combineWorkbookSheets,
   extractWorkbookSheets,
-  resolveImportReview
+  resolveImportReview,
+  worksheetImportRange
 } from '../lib/importer.js';
 
 function readWorkbook(file) {
@@ -20,7 +21,8 @@ function readWorkbook(file) {
         header: 1,
         defval: '',
         raw: true,
-        blankrows: false
+        blankrows: false,
+        range: worksheetImportRange(worksheet)
       })
     );
 

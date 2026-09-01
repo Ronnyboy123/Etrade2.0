@@ -206,6 +206,77 @@ for (const [field, def] of Object.entries(FIELD_DEFINITIONS)) {
 
 export const IMPORT_SOURCE_SHEET_FIELD = '__relora_source_sheet';
 
+function columnLettersToNumber(letters) {
+  let value = 0;
+  for (const char of String(letters || '').toUpperCase()) {
+    if (char < 'A' || char > 'Z') return 0;
+    value = (value * 26) + (char.charCodeAt(0) - 64);
+  }
+  return value;
+}
+
+function columnNumberToLetters(number) {
+  let value = Number(number) || 0;
+  let result = '';
+  while (value > 0) {
+    value -= 1;
+    result = String.fromCharCode(65 + (value % 26)) + result;
+    value = Math.floor(value / 26);
+  }
+  return result || 'A';
+}
+
+function worksheetCellAddress(key) {
+  const match = /^([A-Z]+)(\d+)$/i.exec(String(key || ''));
+  if (!match) return null;
+  return {
+    column: columnLettersToNumber(match[1]),
+    row: Number(match[2])
+  };
+}
+
+function worksheetCellHasContent(cell) {
+  if (!cell || typeof cell !== 'object') return false;
+  if (cell.f !== undefined && cell.f !== null && String(cell.f).trim() !== '') return true;
+  if (cell.v === undefined || cell.v === null) return false;
+  return typeof cell.v === 'string' ? cell.v.trim() !== '' : true;
+}
+
+// Some Excel files carry a corrupted/over-formatted !ref such as A1:XFD4501.
+// SheetJS will walk that entire rectangular range even when the real import
+// headers only occupy a few dozen columns. Bound the read to the last meaningful
+// header in row 1, then to the last meaningful cell inside that header width.
+export function worksheetImportRange(worksheet = {}) {
+  const reportedRef = typeof worksheet?.['!ref'] === 'string' ? worksheet['!ref'].trim() : '';
+  const reportedEnd = /(?:^|:)([A-Z]+)(\d+)$/i.exec(reportedRef);
+  const reportedMaxColumn = reportedEnd ? columnLettersToNumber(reportedEnd[1]) : 0;
+
+  // Normal worksheets are cheap enough to read as-is, and preserving their
+  // declared range avoids changing behavior for sparse/reference tabs.
+  if (reportedRef && reportedMaxColumn > 0 && reportedMaxColumn <= 256) {
+    return reportedRef;
+  }
+
+  let headerMaxColumn = 0;
+
+  for (const key of Object.keys(worksheet || {})) {
+    const address = worksheetCellAddress(key);
+    if (!address || address.row !== 1 || !worksheetCellHasContent(worksheet[key])) continue;
+    headerMaxColumn = Math.max(headerMaxColumn, address.column);
+  }
+
+  if (!headerMaxColumn) return reportedRef || 'A1:A1';
+
+  let maxRow = 1;
+  for (const key of Object.keys(worksheet || {})) {
+    const address = worksheetCellAddress(key);
+    if (!address || address.column > headerMaxColumn || !worksheetCellHasContent(worksheet[key])) continue;
+    maxRow = Math.max(maxRow, address.row);
+  }
+
+  return `A1:${columnNumberToLetters(headerMaxColumn)}${maxRow}`;
+}
+
 function sheetMatrixToRows(matrix = []) {
   if (!Array.isArray(matrix) || matrix.length === 0) {
     return { headers: [], rows: [] };

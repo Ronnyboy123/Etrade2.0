@@ -40,7 +40,7 @@ test('v10.4 removes obsolete recovery-only files and documents admin-provisioned
   assert.doesNotMatch(readme, /\{\{\s*\.Token\s*\}\}/);
 });
 
-test('package version identifies current Relora v11.0', () => {
+test('package version identifies current Relora v11.1', () => {
   const pkg = JSON.parse(fs.readFileSync(packageUrl, 'utf8'));
-  assert.equal(pkg.version, '1.1.0');
+  assert.equal(pkg.version, '1.1.1');
 });
