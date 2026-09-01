@@ -1,5 +1,13 @@
-# Relora v11.1
+# Relora v11.2
 
+
+## v11.2 placeholder shipment identity hardening
+
+- Placeholder identifiers such as `TBA`, `TBD`, `N/A`, `NA`, `NONE`, and `-` are never used as shipment codes.
+- New-import shipment identity falls through in this order: Job File No. → Entry No. → House AWB/BL → Master AWB/BL → generated `WEB-...` code.
+- `B/L NUMBER` and `MASTER BL` headers from the FME workbook map to Relora's House and Master BL fields.
+- Multiple rows with `ENTRY NO. = TBA` can therefore import independently when they have different real BL numbers instead of colliding on `ENTRY-TBA`.
+- No Supabase migration is required for v11.2.
 
 ## v11.1 wide-sheet import hardening
 

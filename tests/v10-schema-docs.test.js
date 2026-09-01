@@ -4,9 +4,9 @@ import fs from 'node:fs';
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
 
-test('Relora package is version 1.1.1', () => {
+test('Relora package is version 1.1.2', () => {
   const pkg = JSON.parse(read('../package.json'));
-  assert.equal(pkg.version, '1.1.1');
+  assert.equal(pkg.version, '1.1.2');
 });
 
 test('schema stays approved-user/RLS based and does not store account passwords', () => {

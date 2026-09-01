@@ -123,14 +123,29 @@ function safeCodePart(value) {
   return String(value ?? '').trim().replace(/\s+/g, '-').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
 }
 
+const SHIPMENT_CODE_PLACEHOLDERS = new Set(['TBA', 'TBD', 'N/A', 'NA', 'NONE', '-']);
+
+function usefulShipmentIdentifier(value) {
+  const text = String(value ?? '').trim();
+  if (!text || SHIPMENT_CODE_PLACEHOLDERS.has(text.toUpperCase())) return '';
+  return text;
+}
+
 export function makeShipmentCode(row) {
   if (String(row?.shipment_code || '').trim()) return String(row.shipment_code).trim();
-  const job = String(row?.job_file_number || '').trim();
-  if (job && !['TBA','TBD','N/A','NA','-'].includes(job.toUpperCase())) return job;
-  const entry = String(row?.entry_no || '').trim();
+
+  const job = usefulShipmentIdentifier(row?.job_file_number);
+  if (job) return job;
+
+  const entry = usefulShipmentIdentifier(row?.entry_no);
   if (entry) return `ENTRY-${safeCodePart(entry)}`;
-  const house = String(row?.house_awb_bl || '').trim();
+
+  const house = usefulShipmentIdentifier(row?.house_awb_bl);
   if (house) return `BL-${safeCodePart(house)}`;
+
+  const master = usefulShipmentIdentifier(row?.master_awb_bl);
+  if (master) return `MBL-${safeCodePart(master)}`;
+
   const uuid = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   return `WEB-${uuid}`;
 }
