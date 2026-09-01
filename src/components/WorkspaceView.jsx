@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Archive, ArrowLeft, Download, Plus, Upload } from 'lucide-react';
 import ImportShipmentModal from './ImportShipmentModal';
 import ShipmentGrid from './ShipmentGrid';
-import { canAddRows, canArchiveRows, canBulkSelectAll, canImportRows } from '../lib/access.js';
+import { canAddRows, canArchiveRow, canArchiveRows, canBulkSelectAll, canImportRows } from '../lib/access.js';
 import { AUTOMATED_FIELDS } from '../lib/importer.js';
 import { downloadRowsAsExcel } from '../lib/exporter.js';
 
@@ -47,6 +47,11 @@ export default function WorkspaceView({
   const allowBulkSelectAll = canBulkSelectAll(currentUser);
   const allowImport = !suppressCreateActions && canImportRows(currentUser);
   const allowAdd = !suppressCreateActions && canAddRows(currentUser);
+  const rowById = useMemo(() => new Map(allRows.map((row) => [row.id, row])), [allRows]);
+  const archivableSelectedIds = useMemo(
+    () => selectedIds.filter((id) => canArchiveRow(currentUser, rowById.get(id))),
+    [selectedIds, currentUser, rowById]
+  );
 
   useEffect(() => {
     const valid = new Set(allRows.map((row) => row.id));
@@ -67,15 +72,15 @@ export default function WorkspaceView({
   const closed = rows.filter((row) => row.overall_status === 'CLOSED').length;
 
   async function archiveSelected() {
-    if (!selectedIds.length || !allowArchive) return;
-    const count = selectedIds.length;
+    if (!archivableSelectedIds.length || !allowArchive) return;
+    const count = archivableSelectedIds.length;
     const confirmed = window.confirm(`Archive ${count} selected shipment${count === 1 ? '' : 's'}? You can restore archived shipments later.`);
     if (!confirmed) return;
     try {
       const archiveAction = onArchiveRows || onDeleteRows;
-      if (archiveAction) await archiveAction(selectedIds);
+      if (archiveAction) await archiveAction(archivableSelectedIds);
       else {
-        const archived = new Set(selectedIds);
+        const archived = new Set(archivableSelectedIds);
         setRows((old) => old.filter((row) => !archived.has(row.id)));
       }
       setSelectedIds([]);
@@ -85,9 +90,15 @@ export default function WorkspaceView({
   }
 
   async function downloadCurrentView() {
-    const exportFields = layout?.displayOrder?.length
-      ? [...AUTOMATED_FIELDS, ...layout.displayOrder]
-      : undefined;
+    let exportFields;
+    if (layout?.displayOrder?.length) {
+      const operationalFields = [...layout.displayOrder];
+      if (!operationalFields.includes('validated_manifest_date')) {
+        const lodgementIndex = operationalFields.indexOf('lodgement');
+        operationalFields.splice(lodgementIndex >= 0 ? lodgementIndex : 0, 0, 'validated_manifest_date');
+      }
+      exportFields = [...AUTOMATED_FIELDS, ...operationalFields];
+    }
     await downloadRowsAsExcel(
       displayedRows,
       `${safeFilename(title)}.xlsx`,
@@ -114,9 +125,9 @@ export default function WorkspaceView({
           {allowBulkSelectAll && displayedIds.length > 0 && selectedIds.length === displayedIds.length && (
             <button className="secondary bulk-select-button" onClick={() => setSelectedIds([])}>Clear selection</button>
           )}
-          {selectedIds.length > 0 && allowArchive && (
+          {archivableSelectedIds.length > 0 && allowArchive && (
             <>
-              <span className="selected-count">{selectedIds.length} selected</span>
+              <span className="selected-count">{archivableSelectedIds.length} selected</span>
               <button className="danger" onClick={archiveSelected}><Archive size={16} /> Archive Selected</button>
             </>
           )}

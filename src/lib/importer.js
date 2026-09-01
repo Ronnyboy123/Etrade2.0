@@ -1,7 +1,6 @@
 import { applyAutomation } from './automation.js';
 
 export const AUTOMATED_FIELDS = [
-  'validated_manifest_date',
   'current_stage',
   'completion',
   'next_action',
@@ -13,7 +12,7 @@ export const AUTOMATED_FIELDS = [
 ];
 
 export const FIELD_DEFINITIONS = {
-  validated_manifest_date: { label: 'Validated Manifest Date', group: 'auto' },
+  validated_manifest_date: { label: 'Validated Manifest Date', group: 'customs' },
   current_stage: { label: 'Current Stage', group: 'auto' },
   completion: { label: 'Completion %', group: 'auto' },
   next_action: { label: 'Next Action', group: 'auto' },

@@ -24,7 +24,7 @@ const DATE_FIELDS = new Set([
 const STANDARD_ORDER = [
   'service_month','job_file_number','customer','shipper','mode','house_awb_bl','master_awb_bl',
   'pre_alert_shipping_documents','eta','cw_air_cbm_lcl','number_of_container','description',
-  'dt_computation','week_no','fundcast','ata','port_of_entry','location_of_goods','lodgement',
+  'dt_computation','week_no','fundcast','ata','port_of_entry','validated_manifest_date','location_of_goods','lodgement',
   'assessed','paid','entry_no','selectivity_color','portal_submission','broker_representative',
   'portal_ticket_efile','releasing_date','liquidation_processor','liquidation_tl','endorsement_to_biller',
   'team_leader','customs_declarant','received_folder','billed_date','efile','dispatch',
@@ -72,7 +72,7 @@ function fieldMeta(field, importMeta) {
 function makeColumn(field, importMeta, currentUser) {
   const meta = fieldMeta(field, importMeta);
   const group = meta.group || 'imported';
-  const autoEditable = ['validated_manifest_date', 'delay_action_remarks', 'boc_status'].includes(field);
+  const autoEditable = ['delay_action_remarks', 'boc_status'].includes(field);
   const column = {
     field,
     headerName: meta.label,
@@ -94,7 +94,10 @@ function makeColumn(field, importMeta, currentUser) {
     minWidth: field === 'delay_action_remarks' ? 235 : 135
   };
 
-  if (DATE_FIELDS.has(field)) column.filter = 'agDateColumnFilter';
+  if (DATE_FIELDS.has(field)) {
+    column.filter = 'agDateColumnFilter';
+    column.cellEditor = 'agDateStringCellEditor';
+  }
   if (field === 'completion') { column.cellRenderer = CompletionRenderer; column.minWidth = 135; }
   if (field === 'overall_status' || field === 'boc_status') { column.cellRenderer = StatusRenderer; column.minWidth = 145; }
   if (field === 'boc_status') {
@@ -157,7 +160,11 @@ export default function ShipmentGrid({
 
   const columnDefs = useMemo(() => {
     const automated = makeGroup('auto', AUTOMATED_FIELDS, importMeta, currentUser, 'fixed');
-    const requestedOrder = layout?.displayOrder?.length ? layout.displayOrder : STANDARD_ORDER;
+    const requestedOrder = layout?.displayOrder?.length ? [...layout.displayOrder] : [...STANDARD_ORDER];
+    if (!requestedOrder.includes('validated_manifest_date')) {
+      const lodgementIndex = requestedOrder.indexOf('lodgement');
+      requestedOrder.splice(lodgementIndex >= 0 ? lodgementIndex : 0, 0, 'validated_manifest_date');
+    }
     const segments = buildDisplaySegments(requestedOrder, layout?.columns || []);
 
     const leading = [];

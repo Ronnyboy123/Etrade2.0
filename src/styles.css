@@ -1608,3 +1608,19 @@ body {
 .month-selector { min-width: 180px; border: 1px solid #bfcfdd; border-radius: 8px; padding: 9px 34px 9px 10px; background: #f8fbfe; color: #173c60; font-weight: 800; }
 @media (max-width: 720px) { .month-selector-bar { align-items: stretch; flex-direction: column; } .month-selector { width: 100%; } }
 .bulk-select-button { white-space: nowrap; }
+
+/* v10.6: admin bulk actions for archived shipments */
+.archived-bulk-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-bottom: 1px solid #dbe4ef;
+  background: #f7fafc;
+}
+.archived-bulk-toolbar strong { margin-right: 4px; font-size: 13px; color: #173d66; }
+.archived-bulk-toolbar button:disabled { opacity: .48; cursor: not-allowed; }
+.archived-select-column { width: 42px; min-width: 42px; text-align: center; }
+.archived-select-column input { width: 16px; height: 16px; cursor: pointer; accent-color: #0b7f86; }
+.archived-row-selected td { background: #eef7fb; }

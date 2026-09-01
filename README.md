@@ -1,15 +1,25 @@
-# Relora v10.4
+
+## v10.6 Archived Admin Bulk Actions
+
+- Admins can select archived shipment rows individually or use the header checkbox to select all archived shipments currently shown by the reporting-month scope.
+- The Archived page shows the selected count and provides **Restore Selected** and **Delete Permanently Selected** actions.
+- Bulk permanent deletion uses one confirmation for the whole selected set and remains Admin-only.
+- Changing the archived result scope clears the current selection.
+
+# Relora v10.5
 
 Relora is an internal shipment and customs operations system built with React, Supabase, AG Grid, and Netlify. **Relora** remains the product/system name and **a. hartrodt** is shown as the organization using it.
 
-## What changed in v10.4
+## What changed in v10.5
 
-- Keeps **email + password** sign-in through Supabase Auth.
-- Removes the **Forgot password** screen, recovery-code/OTP flow, `/reset-password` flow, and signed-in **Password** email action.
-- Removes the recovery-only helper and email-template artifact. Custom SMTP/Resend is not required for the Relora login flow.
-- Accounts are provisioned deliberately by an administrator. The administrator creates the Auth user and provides the initial or temporary password to the employee through an appropriate private channel.
-- No shipment, role, RLS, realtime, import, monthly reporting, archive, or dashboard behavior is changed.
-- No new database migration is required for v10.4.
+- Customs Declarants (`employee`) can edit **all normal operational shipment fields** on shipments assigned to their own account/workspace, including shipment, customs, portal/broker, biller, imported custom fields, BOC Status, and Delay / Action Remarks.
+- Database-managed identity/concurrency/archive fields and Relora-calculated workflow fields remain protected/automatic.
+- **Validated Manifest Date** is now a normal Customs field instead of an Automated field. It is always shown in the operational grid and uses the grid's date picker/date-string editor.
+- Customs Declarants can **Archive** only shipments assigned to themselves. They cannot archive another declarant's shipment.
+- Customs Declarants can view their own archived shipments and **Restore** only their own archived shipments. Permanent deletion remains Admin-only.
+- Team Lead archive/restore remains limited to the Team Lead's team. Manager/Admin behavior remains unchanged.
+- Apply `relora-v10.5-migration.sql` to an existing Supabase project so server-side Archive/Restore authorization matches the v10.5 UI.
+- The v10.4 email + password login remains: there is still no Forgot Password / OTP flow, and accounts continue to use administrator-provided passwords.
 
 ## Existing v10 features preserved
 
@@ -51,7 +61,7 @@ Never put a service-role key, user password, SMTP password, or other server secr
 
 ## 2. Database
 
-For an existing v9 database, `relora-v10-migration.sql` only adds safe indexes for Service Month and ETA. It does not delete or rewrite shipment data. If v10.x is already running, v10.4 requires no additional SQL.
+For an existing v9 database, `relora-v10-migration.sql` only adds safe indexes for Service Month and ETA. It does not delete or rewrite shipment data. If v10.4 is already running, apply `relora-v10.5-migration.sql` before testing employee Archive/Restore. The migration only replaces the Archive/Restore RPC authorization logic; it does not delete or rewrite shipment records.
 
 For a fresh project, run the complete `supabase-schema.sql`.
 
@@ -92,7 +102,7 @@ on conflict (email) do update set
 
 In **Authentication → Providers**, keep Email authentication enabled. Google may remain disabled.
 
-Relora v10.4 does not need recovery-email SMTP settings to sign users in. If custom SMTP was enabled only for password recovery testing, it can be disabled without affecting normal email/password sign-in.
+Relora v10.5 does not need recovery-email SMTP settings to sign users in. If custom SMTP was enabled only for password recovery testing, it can be disabled without affecting normal email/password sign-in.
 
 ## 5. Login flow
 
@@ -108,7 +118,7 @@ approved_users + profile/RLS authorization check
 Authorized workspace
 ```
 
-There is no Forgot Password or OTP screen in v10.4. If a user needs a new password, an authorized administrator handles the account through Supabase rather than through Relora's UI.
+There is no Forgot Password or OTP screen in v10.5. If a user needs a new password, an authorized administrator handles the account through Supabase rather than through Relora's UI.
 
 ## 6. Monthly reporting rule
 
@@ -134,11 +144,13 @@ If August 2026 is selected, a shipment whose Service Month is September 2026 is 
 
 Manager/Admin get an explicit **Select all results** action. It selects only rows in the current reporting month and current search/grid filter result set. Changing month/search scope clears the selection.
 
+Customs Declarants get row selection in **My Workspace** for their assigned shipments and may archive only those shipments. The same ownership check is enforced again inside the Supabase Archive RPC, so an employee cannot archive another declarant's row by calling the API directly.
+
 Permanent deletion remains available only to Admin from the Archived view and requires confirmation.
 
 ## 8. Roles
 
-- `employee`: own workspace/authorized rows.
+- `employee`: own workspace/authorized rows; full normal operational editing on own assigned shipments; Archive/Restore only own assigned shipments.
 - `team_lead`: own team dashboard/workspaces; Activity History; Archive/Restore authorized team records.
 - `assistant_manager`: management dashboard, Master, and team visibility according to existing RLS/access logic.
 - `manager`: operational visibility, Activity History, Archive/Restore, explicit Select all results.
@@ -156,4 +168,4 @@ VITE_SUPABASE_PUBLISHABLE_KEY
 
 Then deploy from the GitHub-connected project and hard-refresh users (`Ctrl + Shift + R`).
 
-Recommended acceptance checks: email/password login with an admin-provided password, current month vs upcoming month totals, historical month switching, All Time management view, Select all results + Archive, realtime two-browser edits, conflict dialog, Activity History, Archive/Restore, and Admin-only permanent delete.
+Recommended acceptance checks: email/password login with an admin-provided password, employee edit of Validated Manifest Date/date picker, employee edit across operational groups on an own shipment, employee Archive/Restore of an own shipment, blocked employee Archive of another declarant shipment, current month vs upcoming month totals, historical month switching, All Time management view, Select all results + Archive, realtime two-browser edits, conflict dialog, Activity History, Archive/Restore, and Admin-only permanent delete.

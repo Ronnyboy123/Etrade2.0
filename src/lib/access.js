@@ -91,7 +91,19 @@ export function canViewActivity(user) {
 }
 
 export function canArchiveRows(user) {
-  return Boolean(user && ['team_lead', 'manager', 'admin'].includes(user.role));
+  return Boolean(user && ['employee', 'team_lead', 'manager', 'admin'].includes(user.role));
+}
+
+export function canArchiveRow(user, row) {
+  if (!user || !row || !canArchiveRows(user)) return false;
+  if (['manager', 'admin'].includes(user.role)) return true;
+  if (user.role === 'team_lead') return norm(row.team_id) === norm(user.teamId);
+  if (user.role === 'employee') {
+    const byUserId = Boolean(user.id && row.assigned_user_id && String(row.assigned_user_id) === String(user.id));
+    const byDeclarant = norm(row.assigned_to || row.customs_declarant) === norm(user.declarantName);
+    return byUserId || byDeclarant;
+  }
+  return false;
 }
 
 export function canBulkSelectAll(user) {
@@ -100,6 +112,10 @@ export function canBulkSelectAll(user) {
 
 export function canRestoreRows(user) {
   return canArchiveRows(user);
+}
+
+export function canRestoreRow(user, row) {
+  return canArchiveRow(user, row);
 }
 
 export function canPermanentlyDeleteRows(user) {

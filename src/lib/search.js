@@ -19,7 +19,11 @@ export function getSearchableColumns(layout = null) {
   const standardFields = Object.keys(FIELD_DEFINITIONS).filter(
     (field) => !AUTOMATED_FIELDS.includes(field)
   );
-  const visibleFields = layout?.displayOrder?.length ? layout.displayOrder : standardFields;
+  const visibleFields = layout?.displayOrder?.length ? [...layout.displayOrder] : [...standardFields];
+  if (!visibleFields.includes('validated_manifest_date')) {
+    const lodgementIndex = visibleFields.indexOf('lodgement');
+    visibleFields.splice(lodgementIndex >= 0 ? lodgementIndex : 0, 0, 'validated_manifest_date');
+  }
   const fields = [...AUTOMATED_FIELDS, ...visibleFields];
   const seen = new Set();
 

@@ -17,13 +17,13 @@ test('formatted export creates merged consecutive group headers in current layou
   assert.deepEqual(
     spec.groups.map((group) => ({ key: group.key, start: group.start, end: group.end })),
     [
-      { key: 'auto', start: 1, end: 9 },
-      { key: 'shipment', start: 10, end: 12 },
-      { key: 'customs', start: 13, end: 14 }
+      { key: 'auto', start: 1, end: 8 },
+      { key: 'shipment', start: 9, end: 11 },
+      { key: 'customs', start: 12, end: 13 }
     ]
   );
-  assert.equal(spec.columns[10].field, 'custom__air_sea');
-  assert.equal(spec.columns[10].group, 'shipment');
+  assert.equal(spec.columns[9].field, 'custom__air_sea');
+  assert.equal(spec.columns[9].group, 'shipment');
 });
 
 test('formatted export marks date columns and percentage column for Excel formatting', () => {

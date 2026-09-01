@@ -6,7 +6,7 @@ const DEFAULT_EXPORT_FIELDS = [
   'service_month', 'job_file_number', 'customer', 'shipper', 'mode',
   'house_awb_bl', 'master_awb_bl', 'pre_alert_shipping_documents', 'eta',
   'cw_air_cbm_lcl', 'number_of_container', 'description', 'dt_computation',
-  'week_no', 'fundcast', 'ata', 'port_of_entry', 'location_of_goods',
+  'week_no', 'fundcast', 'ata', 'port_of_entry', 'validated_manifest_date', 'location_of_goods',
   'lodgement', 'assessed', 'paid', 'entry_no', 'selectivity_color',
   'portal_submission', 'broker_representative', 'portal_ticket_efile',
   'releasing_date', 'liquidation_processor', 'liquidation_tl',

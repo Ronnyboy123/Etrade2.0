@@ -16,12 +16,12 @@ test('v9 activity history is limited to team leads, managers and admins', () => 
   assert.equal(canViewActivity({ role: 'portal' }), false);
 });
 
-test('v9 archive and restore are leadership actions, while permanent delete is admin only', () => {
-  for (const role of ['team_lead', 'manager', 'admin']) {
+test('v10.5 archive and restore allow employees plus leadership, while permanent delete is admin only', () => {
+  for (const role of ['employee', 'team_lead', 'manager', 'admin']) {
     assert.equal(canArchiveRows({ role }), true, role);
     assert.equal(canRestoreRows({ role }), true, role);
   }
-  for (const role of ['employee', 'assistant_manager', 'portal']) {
+  for (const role of ['assistant_manager', 'portal']) {
     assert.equal(canArchiveRows({ role }), false, role);
     assert.equal(canRestoreRows({ role }), false, role);
   }

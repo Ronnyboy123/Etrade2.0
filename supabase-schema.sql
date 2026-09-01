@@ -687,7 +687,7 @@ declare
   v_count integer := 0;
   v_role text := public.current_user_role();
 begin
-  if v_role not in ('team_lead','manager','admin') then
+  if v_role not in ('employee','team_lead','manager','admin') then
     raise exception 'Not authorized to archive shipments';
   end if;
 
@@ -696,6 +696,12 @@ begin
     if not found then continue; end if;
     if v_role = 'team_lead' and v_row.team_id is distinct from public.current_user_team_id() then
       raise exception 'Not authorized to archive a shipment outside your team';
+    end if;
+    if v_role = 'employee' and not (
+      v_row.assigned_user_id = auth.uid()
+      or lower(coalesce(v_row.assigned_to,'')) = lower(coalesce(public.current_user_declarant_name(),''))
+    ) then
+      raise exception 'Not authorized to archive a shipment not assigned to you';
     end if;
     if v_row.archived_at is null then
       update public.shipments
@@ -725,7 +731,7 @@ declare
   v_count integer := 0;
   v_role text := public.current_user_role();
 begin
-  if v_role not in ('team_lead','manager','admin') then
+  if v_role not in ('employee','team_lead','manager','admin') then
     raise exception 'Not authorized to restore shipments';
   end if;
 
@@ -734,6 +740,12 @@ begin
     if not found then continue; end if;
     if v_role = 'team_lead' and v_row.team_id is distinct from public.current_user_team_id() then
       raise exception 'Not authorized to restore a shipment outside your team';
+    end if;
+    if v_role = 'employee' and not (
+      v_row.assigned_user_id = auth.uid()
+      or lower(coalesce(v_row.assigned_to,'')) = lower(coalesce(public.current_user_declarant_name(),''))
+    ) then
+      raise exception 'Not authorized to restore a shipment not assigned to you';
     end if;
     if v_row.archived_at is not null then
       update public.shipments

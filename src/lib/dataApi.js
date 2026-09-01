@@ -26,7 +26,7 @@ const NUMERIC_FIELDS = new Set([
 ]);
 
 const AUTOMATION_PATCH_FIELDS = [
-  'validated_manifest_date','current_stage','completion','next_action','overall_status','boc_status','days_open','last_milestone_date',
+  'current_stage','completion','next_action','overall_status','boc_status','days_open','last_milestone_date',
   'delay_action_remarks','timeline_duty_tax','timeline_lodgement','timeline_fan','timeline_cargo_releasing','timeline_liquidation',
   'timeline_liquidation_tl','timeline_billing','timeline_closing'
 ];
