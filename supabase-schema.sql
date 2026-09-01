@@ -825,20 +825,45 @@ begin
 
     if found then
       v_id := v_before.id;
-      if v_intent = 'create' then
-        raise exception 'Shipment % changed after import review: it now exists. Re-open the import preview.', v_code;
+
+      if v_before.archived_at is not null then
+        if v_intent <> 'restore_update' then
+          raise exception 'Shipment % is archived. Re-open the import preview and choose Skip or Restore & Update.', v_code;
+        end if;
+        if v_expected_version is not null and coalesce(v_before.version, 1) <> v_expected_version then
+          raise exception 'Shipment % changed after import review. Re-open the import preview before syncing.', v_code;
+        end if;
+        if not public.v9_can_mutate_shipment(v_id) or v_role = 'portal' then
+          raise exception 'Not authorized to restore imported shipment %', v_code;
+        end if;
+
+        perform public.v9_apply_shipment_patch(v_id, item);
+        update public.shipments
+        set archived_at = null,
+            archived_by = null,
+            version = version + 1
+        where id = v_id
+        returning * into v_after;
+        v_action := 'import_restore_update';
+      else
+        if v_intent = 'restore_update' then
+          raise exception 'Shipment % changed after import review: it is no longer archived. Re-open the import preview.', v_code;
+        end if;
+        if v_intent = 'create' then
+          raise exception 'Shipment % changed after import review: it now exists. Re-open the import preview.', v_code;
+        end if;
+        if v_expected_version is not null and coalesce(v_before.version, 1) <> v_expected_version then
+          raise exception 'Shipment % changed after import review. Re-open the import preview before syncing.', v_code;
+        end if;
+        if not public.v9_can_mutate_shipment(v_id) or v_role = 'portal' then
+          raise exception 'Not authorized to update imported shipment %', v_code;
+        end if;
+        perform public.v9_apply_shipment_patch(v_id, item);
+        update public.shipments set version = version + 1 where id = v_id returning * into v_after;
+        v_action := 'import_update';
       end if;
-      if v_expected_version is not null and coalesce(v_before.version, 1) <> v_expected_version then
-        raise exception 'Shipment % changed after import review. Re-open the import preview before syncing.', v_code;
-      end if;
-      if not public.v9_can_mutate_shipment(v_id) or v_role = 'portal' then
-        raise exception 'Not authorized to update imported shipment %', v_code;
-      end if;
-      perform public.v9_apply_shipment_patch(v_id, item);
-      update public.shipments set version = version + 1 where id = v_id returning * into v_after;
-      v_action := 'import_update';
     else
-      if v_intent = 'update' then
+      if v_intent in ('update','restore_update') then
         raise exception 'Shipment % changed after import review: it no longer exists. Re-open the import preview.', v_code;
       end if;
       v_team := item ->> 'team_id';
@@ -875,7 +900,7 @@ begin
     )
     select
       v_id, auth.uid(), v_action, p.email, p.full_name, 'import',
-      case when v_action = 'import_update' then v_before.shipment_code else null end,
+      case when v_action in ('import_update','import_restore_update') then v_before.shipment_code else null end,
       v_after.shipment_code
     from public.profiles p where p.id = auth.uid();
 

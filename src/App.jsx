@@ -116,11 +116,13 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
     setDataStatus('loading');
     setDataError('');
     try {
-      const [shipmentRows, visibleProfiles] = await Promise.all([
+      const [shipmentRows, visibleProfiles, archivedShipmentRows] = await Promise.all([
         loadShipments(),
-        loadVisibleProfiles()
+        loadVisibleProfiles(),
+        showArchived ? loadArchivedShipments() : Promise.resolve([])
       ]);
       setRows(shipmentRows.map((row) => applyAutomation(row)));
+      if (showArchived) setArchivedRows(archivedShipmentRows.map((row) => applyAutomation(row)));
       setProfiles(visibleProfiles);
       setDataStatus('ready');
       return true;
@@ -420,8 +422,12 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
       if (plan.unresolvedConflicts > 0) throw new Error('Review every outdated imported value before syncing.');
       markSync('SAVE_START');
       await persistImportChanges(plan.changes, currentUser);
-      const shipmentRows = await loadShipments();
+      const [shipmentRows, archivedShipmentRows] = await Promise.all([
+        loadShipments(),
+        showArchived ? loadArchivedShipments() : Promise.resolve([])
+      ]);
       setRows(shipmentRows.map((row) => applyAutomation(row)));
+      if (showArchived) setArchivedRows(archivedShipmentRows.map((row) => applyAutomation(row)));
       setWorkspaceLayouts((old) => ({
         ...old,
         [layoutKey]: { displayOrder: plan.displayOrder, columns: plan.columns }
@@ -461,7 +467,7 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
         title={title}
         subtitle={subtitle}
         rows={visibleRows}
-        allRows={rows}
+        allRows={[...rows, ...archivedRows]}
         setRows={setRows}
         search={search}
         setSearch={setSearch}

@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { AlertTriangle, FileSpreadsheet, UploadCloud, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { buildImportPlan, resolveImportConflicts } from '../lib/importer.js';
+import { buildImportPlan, resolveImportReview } from '../lib/importer.js';
 
 function readSheet(file) {
   return file.arrayBuffer().then((buffer) => {
@@ -51,6 +51,7 @@ export default function ImportShipmentModal({
   const [sheetName, setSheetName] = useState('');
   const [plan, setPlan] = useState(null);
   const [resolutions, setResolutions] = useState({});
+  const [archivedResolutions, setArchivedResolutions] = useState({});
 
   async function handleFile(file) {
     if (!file) return;
@@ -64,6 +65,7 @@ export default function ImportShipmentModal({
     setError('');
     setPlan(null);
     setResolutions({});
+    setArchivedResolutions({});
 
     try {
       const parsed = await readSheet(file);
@@ -153,6 +155,7 @@ export default function ImportShipmentModal({
               <div className="success"><span>New</span><strong>{plan.summary.created}</strong></div>
               <div className="info"><span>Safe Updates</span><strong>{plan.summary.safeUpdates}</strong></div>
               <div className="danger"><span>Needs Review</span><strong>{plan.summary.reviewConflicts}</strong></div>
+              <div className="warning"><span>Archived Matches</span><strong>{plan.summary.archivedMatches || 0}</strong></div>
               <div><span>Unchanged</span><strong>{plan.summary.unchanged}</strong></div>
               <div><span>Missing match key</span><strong>{plan.summary.missingKey}</strong></div>
             </div>
@@ -191,6 +194,47 @@ export default function ImportShipmentModal({
                 </table>
               </div>
             </div>
+
+            {plan.archivedConflicts?.length > 0 && (
+              <div className="import-conflict-review">
+                <div className="import-conflict-heading">
+                  <div>
+                    <h4>Archived shipment already exists</h4>
+                    <p>Relora found shipment(s) already in Archived. Skip is the safe default, or restore the shipment and update it from this import.</p>
+                  </div>
+                  <span>{plan.archivedConflicts.length} shipment{plan.archivedConflicts.length === 1 ? '' : 's'}</span>
+                </div>
+
+                {plan.archivedConflicts.map((conflict) => {
+                  const choice = archivedResolutions[conflict.id] || 'skip';
+                  return (
+                    <div className="import-conflict-card" key={conflict.id}>
+                      <div className="import-conflict-meta">
+                        <strong>{conflict.shipmentCode || 'Archived shipment'}</strong>
+                        <span>Archived</span>
+                      </div>
+                      <p className="import-conflict-reason">{conflict.reason}</p>
+                      <div className="import-conflict-actions">
+                        <button
+                          type="button"
+                          className={choice === 'skip' ? 'selected' : ''}
+                          onClick={() => setArchivedResolutions((old) => ({ ...old, [conflict.id]: 'skip' }))}
+                        >
+                          Skip
+                        </button>
+                        <button
+                          type="button"
+                          className={choice === 'restore_update' ? 'selected' : ''}
+                          onClick={() => setArchivedResolutions((old) => ({ ...old, [conflict.id]: 'restore_update' }))}
+                        >
+                          {'Restore & Update'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {plan.fieldConflicts?.length > 0 && (
               <div className="import-conflict-review">
@@ -243,11 +287,11 @@ export default function ImportShipmentModal({
             )}
 
             <div className="modal-actions">
-              <button className="ghost-button" onClick={() => { setPlan(null); setResolutions({}); }}>Choose another file</button>
+              <button className="ghost-button" onClick={() => { setPlan(null); setResolutions({}); setArchivedResolutions({}); }}>Choose another file</button>
               <button
                 className="primary-button"
                 disabled={(plan.fieldConflicts || []).some((conflict) => !resolutions[conflict.id])}
-                onClick={() => onConfirm(resolveImportConflicts(plan, resolutions))}
+                onClick={() => onConfirm(resolveImportReview(plan, resolutions, archivedResolutions))}
               >
                 {(plan.fieldConflicts || []).some((conflict) => !resolutions[conflict.id])
                   ? `Review ${plan.fieldConflicts.filter((conflict) => !resolutions[conflict.id]).length} Value(s)`

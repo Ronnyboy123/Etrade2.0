@@ -376,6 +376,7 @@ export function buildImportPlan({
   const seenImportKeys = new Set();
   const changes = [];
   const fieldConflicts = [];
+  const archivedConflicts = [];
   let created = 0;
   let updated = 0;
   let duplicates = 0;
@@ -383,6 +384,7 @@ export function buildImportPlan({
   let conflicts = 0;
   let safeUpdates = 0;
   let unchanged = 0;
+  let archivedMatches = 0;
 
   importedRows.forEach((rawRow, index) => {
     const incoming = makeImportedRow(rawRow, mapping.columns, assignedTo, index);
@@ -406,6 +408,26 @@ export function buildImportPlan({
       if (assignedTo && oldRow.assigned_to && oldRow.assigned_to !== assignedTo) {
         conflicts += 1;
         changes.push({ type: 'conflict', row: oldRow, incoming });
+        return;
+      }
+
+      if (oldRow.archived_at) {
+        const archivedConflict = {
+          id: `archived:${oldRow.id}`,
+          shipmentId: oldRow.id,
+          shipmentCode: oldRow.shipment_code || oldRow.job_file_number || '',
+          reason: 'Archived shipment already exists in Relora. Skip it, or explicitly Restore & Update it from this import.'
+        };
+        archivedMatches += 1;
+        archivedConflicts.push(archivedConflict);
+        changes.push({
+          type: 'archived_match',
+          row: oldRow,
+          incoming,
+          archivedConflictId: archivedConflict.id,
+          changedFields: [],
+          fieldConflicts: []
+        });
         return;
       }
 
@@ -496,6 +518,7 @@ export function buildImportPlan({
     finalRows: [...createdRows, ...nextRows],
     changes,
     fieldConflicts,
+    archivedConflicts,
     unresolvedConflicts: fieldConflicts.length,
     importSnapshotAt,
     summary: {
@@ -504,6 +527,7 @@ export function buildImportPlan({
       updated,
       safeUpdates,
       reviewConflicts: fieldConflicts.length,
+      archivedMatches,
       unchanged,
       duplicates,
       missingKey,
@@ -513,8 +537,8 @@ export function buildImportPlan({
   };
 }
 
-export function resolveImportConflicts(plan, resolutions = {}) {
-  const changes = plan.changes.map((change) => {
+function applyFieldConflictResolutions(plan, resolutions = {}) {
+  return plan.changes.map((change) => {
     if (change.type !== 'update' || !change.fieldConflicts?.length) return change;
 
     const row = { ...change.row };
@@ -533,6 +557,38 @@ export function resolveImportConflicts(plan, resolutions = {}) {
 
     return { ...change, row: applyAutomation(row), changedFields };
   });
+}
+
+function restoreArchivedChange(change) {
+  const oldRow = change.row || {};
+  const incoming = change.incoming || {};
+  const merged = { ...oldRow, archived_at: null, archived_by: null };
+  const changedFields = [];
+
+  for (const [field, value] of Object.entries(incoming)) {
+    if (field === 'id') continue;
+    if (isBlankImportedValue(value)) continue;
+    if (String(oldRow[field] ?? '') === String(value)) continue;
+    merged[field] = value;
+    changedFields.push({ field, oldValue: oldRow[field] ?? '', newValue: value, reviewed: true });
+  }
+
+  return {
+    ...change,
+    type: 'restore_update',
+    row: applyAutomation(merged),
+    changedFields
+  };
+}
+
+export function resolveImportReview(plan, resolutions = {}, archivedResolutions = {}) {
+  const fieldResolved = applyFieldConflictResolutions(plan, resolutions);
+  const changes = fieldResolved.map((change) => {
+    if (change.type !== 'archived_match') return change;
+    const choice = archivedResolutions[change.archivedConflictId] || 'skip';
+    if (choice === 'restore_update') return restoreArchivedChange(change);
+    return { ...change, type: 'skip' };
+  });
 
   const unresolvedConflicts = (plan.fieldConflicts || []).filter(
     (conflict) => !['server', 'import'].includes(resolutions[conflict.id])
@@ -540,7 +596,7 @@ export function resolveImportConflicts(plan, resolutions = {}) {
 
   const resolvedById = new Map(
     changes
-      .filter((change) => change.type === 'update' && change.row?.id)
+      .filter((change) => ['update', 'restore_update'].includes(change.type) && change.row?.id)
       .map((change) => [change.row.id, change.row])
   );
 
@@ -551,6 +607,11 @@ export function resolveImportConflicts(plan, resolutions = {}) {
     changes,
     finalRows,
     resolutions: { ...resolutions },
+    archivedResolutions: { ...archivedResolutions },
     unresolvedConflicts
   };
+}
+
+export function resolveImportConflicts(plan, resolutions = {}) {
+  return resolveImportReview(plan, resolutions, {});
 }

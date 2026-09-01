@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 const modal = await readFile(new URL('../src/components/ImportShipmentModal.jsx', import.meta.url), 'utf8');
 
 test('import modal requires explicit review of stale values before sync', () => {
-  assert.match(modal, /resolveImportConflicts/);
+  assert.match(modal, /resolveImportReview/);
   assert.match(modal, /Needs Review/);
   assert.match(modal, /Keep Relora/);
   assert.match(modal, /Use Imported/);

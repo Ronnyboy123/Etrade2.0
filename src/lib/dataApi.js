@@ -315,11 +315,11 @@ export async function loadShipmentActivity(shipmentId) {
 
 export function prepareImportPayloads(changes) {
   return (changes || [])
-    .filter((change) => change && change.type !== 'conflict' && change.row)
+    .filter((change) => change && !['conflict', 'skip', 'archived_match'].includes(change.type) && change.row)
     .map((change) => {
       const payload = serializeShipmentRow(change.row);
       payload._relora_import_intent = change.type;
-      if (change.type === 'update' && Number.isFinite(Number(change.row?.version))) {
+      if (['update', 'restore_update'].includes(change.type) && Number.isFinite(Number(change.row?.version))) {
         payload._relora_expected_version = Number(change.row.version);
       }
       return payload;

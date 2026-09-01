@@ -1,3 +1,11 @@
+# Relora v10.7
+
+## v10.7 changes
+- Import review recognizes archived shipment identities and never treats them as new rows.
+- Archived import matches default to **Skip** or can be explicitly **Restore & Update**.
+- Customs Declarants can archive/restore only their own assigned shipments after applying `relora-v10.7-migration.sql`.
+- Company email addresses such as `name@hartrodt.com.ph` are supported as login usernames because Relora uses email + password authentication.
+
 
 ## v10.6 Archived Admin Bulk Actions
 
