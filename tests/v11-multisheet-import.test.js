@@ -123,7 +123,7 @@ test('multi-sheet selector and trace table have dedicated responsive styling', (
   assert.match(styles, /\.import-trace-wrap/);
 });
 
-test('v11.2 package version is 1.1.2', () => {
+test('v11.3 package version is 1.1.3', () => {
   const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(pkg.version, '1.1.2');
+  assert.equal(pkg.version, '1.1.3');
 });

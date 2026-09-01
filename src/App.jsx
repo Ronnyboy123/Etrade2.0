@@ -416,13 +416,13 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
     }
   }
 
-  async function handleImport(plan, layoutKey) {
+  async function handleImport(plan, layoutKey, onProgress) {
     setMutationError('');
     try {
       requireOnline();
       if (plan.unresolvedConflicts > 0) throw new Error('Review every outdated imported value before syncing.');
       markSync('SAVE_START');
-      await persistImportChanges(plan.changes, currentUser);
+      await persistImportChanges(plan.changes, currentUser, { onProgress });
       const [shipmentRows, archivedShipmentRows] = await Promise.all([
         loadShipments(),
         showArchived ? loadArchivedShipments() : Promise.resolve([])
@@ -438,8 +438,12 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
       if (navigator.onLine) markSync('SAVE_ERROR');
       setMutationError(error?.message || 'Unable to sync this imported file.');
       try {
-        const shipmentRows = await loadShipments();
+        const [shipmentRows, archivedShipmentRows] = await Promise.all([
+          loadShipments(),
+          showArchived ? loadArchivedShipments() : Promise.resolve([])
+        ]);
         setRows(shipmentRows.map((row) => applyAutomation(row)));
+        if (showArchived) setArchivedRows(archivedShipmentRows.map((row) => applyAutomation(row)));
       } catch {
         // Keep the current UI state if a recovery reload also fails.
       }
@@ -488,7 +492,7 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
         onArchiveRows={handleArchiveRows}
         onEditingChange={handleEditingChange}
         onOpenActivity={showActivity ? openActivity : undefined}
-        onImportConfirmed={(plan) => handleImport(plan, layoutKey)}
+        onImportConfirmed={(plan, onProgress) => handleImport(plan, layoutKey, onProgress)}
       />
     );
   }

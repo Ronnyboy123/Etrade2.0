@@ -328,6 +328,8 @@ export async function loadShipmentActivity(shipmentId) {
   return data || [];
 }
 
+export const IMPORT_BATCH_SIZE = 100;
+
 export function prepareImportPayloads(changes) {
   return (changes || [])
     .filter((change) => change && !['conflict', 'skip', 'archived_match'].includes(change.type) && change.row)
@@ -341,18 +343,74 @@ export function prepareImportPayloads(changes) {
     });
 }
 
-export async function persistImportChanges(changes, currentUser) {
+export function chunkImportPayloads(payloads, batchSize = IMPORT_BATCH_SIZE) {
+  const size = Math.max(1, Math.floor(Number(batchSize)) || IMPORT_BATCH_SIZE);
+  const rows = Array.isArray(payloads) ? payloads : [];
+  const chunks = [];
+  for (let index = 0; index < rows.length; index += size) {
+    chunks.push(rows.slice(index, index + size));
+  }
+  return chunks;
+}
+
+export async function persistImportPayloadBatches(payloads, sendBatch, options = {}) {
+  const batches = chunkImportPayloads(payloads, options.batchSize);
+  const total = Array.isArray(payloads) ? payloads.length : 0;
+  const results = [];
+  let processed = 0;
+
+  for (let index = 0; index < batches.length; index += 1) {
+    const batch = batches[index];
+    try {
+      const batchRows = await sendBatch(batch, {
+        batch: index + 1,
+        batches: batches.length,
+        processed,
+        total
+      });
+      if (Array.isArray(batchRows)) results.push(...batchRows);
+    } catch (error) {
+      const message = error?.message || 'Unknown database error.';
+      const wrapped = new Error(
+        `Import stopped at batch ${index + 1} of ${batches.length} after ${processed} of ${total} changes were synced. ${message}`
+      );
+      wrapped.cause = error;
+      throw wrapped;
+    }
+
+    processed += batch.length;
+    options.onProgress?.({
+      batch: index + 1,
+      batches: batches.length,
+      processed,
+      total
+    });
+
+    if (options.yieldBetweenBatches !== false && index < batches.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  return results;
+}
+
+export async function persistImportChanges(changes, currentUser, options = {}) {
   const client = await requireSupabase();
   const payloads = prepareImportPayloads(changes);
   if (!payloads.length) return [];
 
-  const { data, error } = await client.rpc('persist_import_batch', { p_rows: payloads });
-  if (error) {
-    if (error.code === '23505' || /duplicate key value/i.test(error.message || '')) {
-      throw new Error('A shipment with the same unique shipment code already exists. Refresh the data and retry the import.');
-    }
-    throw error;
-  }
-
-  return (data || []).map(flattenShipmentRow);
+  return persistImportPayloadBatches(
+    payloads,
+    async (batch) => {
+      const { data, error } = await client.rpc('persist_import_batch', { p_rows: batch });
+      if (error) {
+        if (error.code === '23505' || /duplicate key value/i.test(error.message || '')) {
+          throw new Error('A shipment with the same unique shipment code already exists. Refresh the data and retry the import.');
+        }
+        throw error;
+      }
+      return (data || []).map(flattenShipmentRow);
+    },
+    options
+  );
 }

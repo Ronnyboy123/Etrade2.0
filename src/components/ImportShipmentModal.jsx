@@ -34,6 +34,22 @@ function readWorkbook(file) {
   });
 }
 
+
+const REVIEW_PAGE_SIZE = 100;
+const CONFLICT_PAGE_SIZE = 50;
+
+function ReviewPager({ page, setPage, total, pageSize, label }) {
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  if (total <= pageSize) return null;
+  return (
+    <div className="import-pager">
+      <button type="button" className="ghost-button" disabled={page <= 0} onClick={() => setPage((old) => Math.max(0, old - 1))}>Previous</button>
+      <span>{label} page {page + 1} of {pageCount}</span>
+      <button type="button" className="ghost-button" disabled={page >= pageCount - 1} onClick={() => setPage((old) => Math.min(pageCount - 1, old + 1))}>Next</button>
+    </div>
+  );
+}
+
 export default function ImportShipmentModal({
   allRows,
   assignedTo,
@@ -51,17 +67,32 @@ export default function ImportShipmentModal({
   const [plan, setPlan] = useState(null);
   const [resolutions, setResolutions] = useState({});
   const [archivedResolutions, setArchivedResolutions] = useState({});
+  const [tracePage, setTracePage] = useState(0);
+  const [archivedPage, setArchivedPage] = useState(0);
+  const [conflictPage, setConflictPage] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(null);
 
   const importableSheetNames = workbookSheets
     .filter((sheet) => sheet.rowCount > 0)
     .map((sheet) => sheet.name);
   const allSheetsSelected = importableSheetNames.length > 0
     && importableSheetNames.every((name) => selectedSheetNames.includes(name));
+  const traceStart = tracePage * REVIEW_PAGE_SIZE;
+  const visibleTraceRows = (plan?.rowTrace || []).slice(traceStart, traceStart + REVIEW_PAGE_SIZE);
+  const archivedStart = archivedPage * CONFLICT_PAGE_SIZE;
+  const visibleArchivedConflicts = (plan?.archivedConflicts || []).slice(archivedStart, archivedStart + CONFLICT_PAGE_SIZE);
+  const conflictStart = conflictPage * CONFLICT_PAGE_SIZE;
+  const visibleFieldConflicts = (plan?.fieldConflicts || []).slice(conflictStart, conflictStart + CONFLICT_PAGE_SIZE);
 
   function resetReviewState() {
     setPlan(null);
     setResolutions({});
     setArchivedResolutions({});
+    setTracePage(0);
+    setArchivedPage(0);
+    setConflictPage(0);
+    setSyncProgress(null);
   }
 
   function chooseAnotherFile() {
@@ -112,6 +143,10 @@ export default function ImportShipmentModal({
     setError('');
     setResolutions({});
     setArchivedResolutions({});
+    setTracePage(0);
+    setArchivedPage(0);
+    setConflictPage(0);
+    setSyncProgress(null);
     setPlan(buildImportPlan({
       existingRows: allRows,
       importedRows: combined.rows,
@@ -140,8 +175,28 @@ export default function ImportShipmentModal({
     handleFile(event.dataTransfer.files?.[0]);
   }
 
+  async function syncReviewedChanges() {
+    if (!plan || isSyncing) return;
+    const unresolved = (plan.fieldConflicts || []).filter((conflict) => !resolutions[conflict.id]);
+    if (unresolved.length > 0) return;
+
+    setIsSyncing(true);
+    setSyncProgress(null);
+    setError('');
+    try {
+      await onConfirm(
+        resolveImportReview(plan, resolutions, archivedResolutions),
+        (progress) => setSyncProgress(progress)
+      );
+    } catch (err) {
+      setError(err?.message || 'Unable to sync this imported file.');
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
+    <div className="modal-backdrop" onMouseDown={isSyncing ? undefined : onClose}>
       <div className="import-modal" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-header">
           <div>
@@ -151,7 +206,7 @@ export default function ImportShipmentModal({
               and imported columns keep the same order as your selected Excel/CSV sheets.
             </p>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="Close import">
+          <button className="icon-button" onClick={onClose} aria-label="Close import" disabled={isSyncing}>
             <X size={18} />
           </button>
         </div>
@@ -316,8 +371,8 @@ export default function ImportShipmentModal({
                     </tr>
                   </thead>
                   <tbody>
-                    {(plan.rowTrace || []).map((trace, index) => (
-                      <tr key={`${trace.sourceSheet || 'sheet'}-${trace.shipmentCode || 'row'}-${index}`}>
+                    {visibleTraceRows.map((trace, index) => (
+                      <tr key={`${trace.sourceSheet || 'sheet'}-${trace.shipmentCode || 'row'}-${traceStart + index}`}>
                         <td>{trace.sourceSheet || '—'}</td>
                         <td>{trace.shipmentCode || 'No match key'}</td>
                         <td>{trace.result}</td>
@@ -326,6 +381,13 @@ export default function ImportShipmentModal({
                   </tbody>
                 </table>
               </div>
+              <ReviewPager
+                page={tracePage}
+                setPage={setTracePage}
+                total={plan.rowTrace?.length || 0}
+                pageSize={REVIEW_PAGE_SIZE}
+                label="Trace"
+              />
             </div>
 
             <div className="mapping-section">
@@ -373,7 +435,7 @@ export default function ImportShipmentModal({
                   <span>{plan.archivedConflicts.length} shipment{plan.archivedConflicts.length === 1 ? '' : 's'}</span>
                 </div>
 
-                {plan.archivedConflicts.map((conflict) => {
+                {visibleArchivedConflicts.map((conflict) => {
                   const choice = archivedResolutions[conflict.id] || 'skip';
                   return (
                     <div className="import-conflict-card" key={conflict.id}>
@@ -401,6 +463,13 @@ export default function ImportShipmentModal({
                     </div>
                   );
                 })}
+                <ReviewPager
+                  page={archivedPage}
+                  setPage={setArchivedPage}
+                  total={plan.archivedConflicts.length}
+                  pageSize={CONFLICT_PAGE_SIZE}
+                  label="Archived matches"
+                />
               </div>
             )}
 
@@ -414,7 +483,7 @@ export default function ImportShipmentModal({
                   <span>{plan.fieldConflicts.length} value{plan.fieldConflicts.length === 1 ? '' : 's'}</span>
                 </div>
 
-                {plan.fieldConflicts.map((conflict) => (
+                {visibleFieldConflicts.map((conflict) => (
                   <div className="import-conflict-card" key={conflict.id}>
                     <div className="import-conflict-meta">
                       <strong>{conflict.shipmentCode || 'Matched shipment'}</strong>
@@ -443,6 +512,13 @@ export default function ImportShipmentModal({
                     </div>
                   </div>
                 ))}
+                <ReviewPager
+                  page={conflictPage}
+                  setPage={setConflictPage}
+                  total={plan.fieldConflicts.length}
+                  pageSize={CONFLICT_PAGE_SIZE}
+                  label="Review values"
+                />
               </div>
             )}
 
@@ -454,10 +530,32 @@ export default function ImportShipmentModal({
               </div>
             )}
 
+            {isSyncing && (
+              <div className="import-progress-panel" aria-live="polite">
+                <div className="import-progress-copy">
+                  <strong>
+                    {syncProgress
+                      ? `Importing batch ${syncProgress.batch} of ${syncProgress.batches}`
+                      : 'Preparing import batches…'}
+                  </strong>
+                  <span>
+                    {syncProgress
+                      ? `${syncProgress.processed} of ${syncProgress.total} changes processed`
+                      : 'Relora will sync the file in smaller database transactions.'}
+                  </span>
+                </div>
+                <progress
+                  value={syncProgress?.processed || 0}
+                  max={Math.max(1, syncProgress?.total || 1)}
+                />
+              </div>
+            )}
+
             <div className="modal-actions">
               <button
                 className="ghost-button"
                 type="button"
+                disabled={isSyncing}
                 onClick={() => {
                   resetReviewState();
                   setError('');
@@ -467,12 +565,14 @@ export default function ImportShipmentModal({
               </button>
               <button
                 className="primary-button"
-                disabled={(plan.fieldConflicts || []).some((conflict) => !resolutions[conflict.id])}
-                onClick={() => onConfirm(resolveImportReview(plan, resolutions, archivedResolutions))}
+                disabled={isSyncing || (plan.fieldConflicts || []).some((conflict) => !resolutions[conflict.id])}
+                onClick={syncReviewedChanges}
               >
-                {(plan.fieldConflicts || []).some((conflict) => !resolutions[conflict.id])
-                  ? `Review ${plan.fieldConflicts.filter((conflict) => !resolutions[conflict.id]).length} Value(s)`
-                  : 'Sync Reviewed Changes'}
+                {isSyncing
+                  ? 'Syncing in batches…'
+                  : (plan.fieldConflicts || []).some((conflict) => !resolutions[conflict.id])
+                    ? `Review ${plan.fieldConflicts.filter((conflict) => !resolutions[conflict.id]).length} Value(s)`
+                    : 'Sync Reviewed Changes'}
               </button>
             </div>
           </>

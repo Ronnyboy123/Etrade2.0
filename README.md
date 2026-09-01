@@ -1,4 +1,15 @@
-# Relora v11.2
+# Relora v11.3
+
+
+## v11.3 — Large Import Stability
+
+- Large reviewed imports are sent to Supabase in batches of 100 changes instead of one oversized RPC transaction.
+- Import progress shows the committed batch and processed change count while syncing.
+- If a later batch fails, Relora stops and reports which batch failed and how many changes were already committed; reopening the preview safely reconciles those rows before retrying.
+- Import row trace is paginated at 100 rows per page, while archived matches and stale-value review cards are paginated at 50 per page to avoid rendering thousands of DOM nodes at once.
+- The UI yields between database batches so Chrome can repaint progress instead of appearing frozen.
+- Existing multi-sheet, wide-sheet, date normalization, archived duplicate, placeholder ID, role, and assignment protections remain in place.
+- No new Supabase migration is required for v11.3.
 
 
 ## v11.2 placeholder shipment identity hardening

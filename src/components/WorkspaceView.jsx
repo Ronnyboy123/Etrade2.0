@@ -168,7 +168,7 @@ export default function WorkspaceView({
           allRows={allRows}
           assignedTo={assignedTo}
           onClose={() => setShowImport(false)}
-          onConfirm={async (plan) => {
+          onConfirm={async (plan, onProgress) => {
             const normalizeAssignedRow = (row) => {
               if (!assignedTo) return row;
               const rowDeclarant = String(row.assigned_to || row.customs_declarant || assignedTo);
@@ -189,12 +189,8 @@ export default function WorkspaceView({
               incoming: change.incoming ? normalizeAssignedRow(change.incoming) : change.incoming
             }));
 
-            try {
-              await onImportConfirmed({ ...plan, finalRows, changes });
-              setShowImport(false);
-            } catch (error) {
-              window.alert(error?.message || 'Unable to sync this imported file.');
-            }
+            await onImportConfirmed({ ...plan, finalRows, changes }, onProgress);
+            setShowImport(false);
           }}
         />
       )}
