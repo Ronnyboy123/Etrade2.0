@@ -1,39 +1,34 @@
 import { useRef, useState } from 'react';
 import { AlertTriangle, FileSpreadsheet, UploadCloud, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { buildImportPlan, resolveImportReview } from '../lib/importer.js';
+import {
+  buildImportPlan,
+  combineWorkbookSheets,
+  extractWorkbookSheets,
+  resolveImportReview
+} from '../lib/importer.js';
 
-function readSheet(file) {
+function readWorkbook(file) {
   return file.arrayBuffer().then((buffer) => {
     const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
-    const sheetName = workbook.SheetNames[0];
-    if (!sheetName) throw new Error('The workbook does not contain any sheets.');
+    if (!workbook.SheetNames?.length) {
+      throw new Error('The workbook does not contain any sheets.');
+    }
 
-    const worksheet = workbook.Sheets[sheetName];
-    const matrix = XLSX.utils.sheet_to_json(worksheet, {
-      header: 1,
-      defval: '',
-      raw: true,
-      blankrows: false
-    });
+    const sheets = extractWorkbookSheets(workbook, (worksheet) =>
+      XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        defval: '',
+        raw: true,
+        blankrows: false
+      })
+    );
 
-    if (!matrix.length) throw new Error('The selected sheet is empty.');
+    if (!sheets.some((sheet) => sheet.rowCount > 0)) {
+      throw new Error('The workbook does not contain any shipment rows.');
+    }
 
-    const width = Math.max(...matrix.map((row) => row.length));
-    const rawHeaders = Array.from({ length: width }, (_, index) => matrix[0]?.[index] ?? '');
-    const headers = rawHeaders.map((value, index) => {
-      const text = String(value ?? '').trim();
-      return text || `Unnamed Column ${index + 1}`;
-    });
-
-    const rows = matrix
-      .slice(1)
-      .filter((row) => row.some((value) => String(value ?? '').trim() !== ''))
-      .map((row) =>
-        Object.fromEntries(headers.map((header, index) => [header, row[index] ?? '']))
-      );
-
-    return { headers, rows, sheetName };
+    return sheets;
   });
 }
 
@@ -48,10 +43,34 @@ export default function ImportShipmentModal({
   const [isReading, setIsReading] = useState(false);
   const [error, setError] = useState('');
   const [fileName, setFileName] = useState('');
-  const [sheetName, setSheetName] = useState('');
+  const [workbookSheets, setWorkbookSheets] = useState([]);
+  const [selectedSheetNames, setSelectedSheetNames] = useState([]);
+  const [importSnapshotAt, setImportSnapshotAt] = useState(null);
   const [plan, setPlan] = useState(null);
   const [resolutions, setResolutions] = useState({});
   const [archivedResolutions, setArchivedResolutions] = useState({});
+
+  const importableSheetNames = workbookSheets
+    .filter((sheet) => sheet.rowCount > 0)
+    .map((sheet) => sheet.name);
+  const allSheetsSelected = importableSheetNames.length > 0
+    && importableSheetNames.every((name) => selectedSheetNames.includes(name));
+
+  function resetReviewState() {
+    setPlan(null);
+    setResolutions({});
+    setArchivedResolutions({});
+  }
+
+  function chooseAnotherFile() {
+    resetReviewState();
+    setFileName('');
+    setWorkbookSheets([]);
+    setSelectedSheetNames([]);
+    setImportSnapshotAt(null);
+    setError('');
+    if (inputRef.current) inputRef.current.value = '';
+  }
 
   async function handleFile(file) {
     if (!file) return;
@@ -63,28 +82,54 @@ export default function ImportShipmentModal({
 
     setIsReading(true);
     setError('');
-    setPlan(null);
-    setResolutions({});
-    setArchivedResolutions({});
+    resetReviewState();
 
     try {
-      const parsed = await readSheet(file);
-      const nextPlan = buildImportPlan({
-        existingRows: allRows,
-        importedRows: parsed.rows,
-        headers: parsed.headers,
-        assignedTo,
-        importSnapshotAt: file.lastModified ? new Date(file.lastModified).toISOString() : null
-      });
-
+      const sheets = await readWorkbook(file);
+      const selectable = sheets.filter((sheet) => sheet.rowCount > 0).map((sheet) => sheet.name);
       setFileName(file.name);
-      setSheetName(parsed.sheetName);
-      setPlan(nextPlan);
+      setWorkbookSheets(sheets);
+      setSelectedSheetNames(selectable);
+      setImportSnapshotAt(file.lastModified ? new Date(file.lastModified).toISOString() : null);
     } catch (err) {
       setError(err?.message || 'Unable to read this file.');
+      setWorkbookSheets([]);
+      setSelectedSheetNames([]);
     } finally {
       setIsReading(false);
     }
+  }
+
+  function reviewSelectedSheets() {
+    const combined = combineWorkbookSheets(workbookSheets, selectedSheetNames);
+    if (!combined.rows.length) {
+      setError('Select at least one sheet that contains shipment rows.');
+      return;
+    }
+
+    setError('');
+    setResolutions({});
+    setArchivedResolutions({});
+    setPlan(buildImportPlan({
+      existingRows: allRows,
+      importedRows: combined.rows,
+      headers: combined.headers,
+      assignedTo,
+      importSnapshotAt,
+      sheetBreakdown: combined.sheetBreakdown
+    }));
+  }
+
+  function toggleAllSheets() {
+    setSelectedSheetNames(allSheetsSelected ? [] : importableSheetNames);
+  }
+
+  function toggleSheet(name) {
+    setSelectedSheetNames((current) =>
+      current.includes(name)
+        ? current.filter((sheetName) => sheetName !== name)
+        : [...current, name]
+    );
   }
 
   function drop(event) {
@@ -101,7 +146,7 @@ export default function ImportShipmentModal({
             <h3>Import Shipment File</h3>
             <p>
               This works like a sync: matching shipments are updated, new shipments are added,
-              and imported columns keep the same order as your Excel/CSV file.
+              and imported columns keep the same order as your selected Excel/CSV sheets.
             </p>
           </div>
           <button className="icon-button" onClick={onClose} aria-label="Close import">
@@ -109,7 +154,7 @@ export default function ImportShipmentModal({
           </button>
         </div>
 
-        {!plan && (
+        {!workbookSheets.length && !plan && (
           <div
             className={`drop-zone ${isDragging ? 'dragging' : ''}`}
             onDragOver={(event) => {
@@ -140,13 +185,76 @@ export default function ImportShipmentModal({
           </div>
         )}
 
+        {workbookSheets.length > 0 && !plan && (
+          <>
+            <div className="import-file-card">
+              <FileSpreadsheet size={24} />
+              <div>
+                <strong>{fileName}</strong>
+                <span>{workbookSheets.length} sheet{workbookSheets.length === 1 ? '' : 's'} detected</span>
+              </div>
+            </div>
+
+            <div className="sheet-selection-panel">
+              <div className="mapping-heading">
+                <div>
+                  <h4>Select sheets to import</h4>
+                  <p>Review the workbook tabs first. Empty or reference sheets can be left out.</p>
+                </div>
+                <span>{selectedSheetNames.length} selected</span>
+              </div>
+
+              <label className="sheet-option sheet-option-all">
+                <input
+                  type="checkbox"
+                  checked={allSheetsSelected}
+                  onChange={toggleAllSheets}
+                />
+                <span>
+                  <strong>All Sheets</strong>
+                  <small>Select every sheet that contains rows</small>
+                </span>
+              </label>
+
+              <div className="sheet-option-list">
+                {workbookSheets.map((sheet) => (
+                  <label className={`sheet-option ${sheet.rowCount === 0 ? 'empty' : ''}`} key={sheet.name}>
+                    <input
+                      type="checkbox"
+                      checked={selectedSheetNames.includes(sheet.name)}
+                      disabled={sheet.rowCount === 0}
+                      onChange={() => toggleSheet(sheet.name)}
+                    />
+                    <span>
+                      <strong>{sheet.name}</strong>
+                      <small>{sheet.rowCount} row{sheet.rowCount === 1 ? '' : 's'}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="modal-actions">
+              <button className="ghost-button" type="button" onClick={chooseAnotherFile}>Choose another file</button>
+              <button
+                className="primary-button"
+                type="button"
+                disabled={selectedSheetNames.length === 0}
+                onClick={reviewSelectedSheets}
+              >
+                Review Selected Sheets
+              </button>
+            </div>
+          </>
+        )}
+
         {plan && (
           <>
             <div className="import-file-card">
               <FileSpreadsheet size={24} />
               <div>
                 <strong>{fileName}</strong>
-                <span>Sheet: {sheetName}</span>
+                <span>{plan.sheetBreakdown?.length || 0} selected sheet{plan.sheetBreakdown?.length === 1 ? '' : 's'}</span>
               </div>
             </div>
 
@@ -158,6 +266,64 @@ export default function ImportShipmentModal({
               <div className="warning"><span>Archived Matches</span><strong>{plan.summary.archivedMatches || 0}</strong></div>
               <div><span>Unchanged</span><strong>{plan.summary.unchanged}</strong></div>
               <div><span>Missing match key</span><strong>{plan.summary.missingKey}</strong></div>
+            </div>
+
+            <div className="mapping-section">
+              <div className="mapping-heading">
+                <div>
+                  <h4>Selected sheet summary</h4>
+                  <p>Use Source Sheet to trace where imported shipment rows came from.</p>
+                </div>
+                <span>{plan.sheetBreakdown?.length || 0} sheets</span>
+              </div>
+              <div className="mapping-table-wrap compact-import-table">
+                <table className="mapping-table">
+                  <thead>
+                    <tr>
+                      <th>Source Sheet</th>
+                      <th>Rows</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(plan.sheetBreakdown || []).map((sheet) => (
+                      <tr key={sheet.name}>
+                        <td>{sheet.name}</td>
+                        <td>{sheet.rowCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="mapping-section">
+              <div className="mapping-heading">
+                <div>
+                  <h4>Import row trace</h4>
+                  <p>Each reviewed shipment keeps the worksheet name that supplied it.</p>
+                </div>
+                <span>{plan.rowTrace?.length || 0} rows</span>
+              </div>
+              <div className="mapping-table-wrap import-trace-wrap">
+                <table className="mapping-table">
+                  <thead>
+                    <tr>
+                      <th>Source Sheet</th>
+                      <th>Shipment</th>
+                      <th>Preview Result</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(plan.rowTrace || []).map((trace, index) => (
+                      <tr key={`${trace.sourceSheet || 'sheet'}-${trace.shipmentCode || 'row'}-${index}`}>
+                        <td>{trace.sourceSheet || '—'}</td>
+                        <td>{trace.shipmentCode || 'No match key'}</td>
+                        <td>{trace.result}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <div className="mapping-section">
@@ -211,7 +377,7 @@ export default function ImportShipmentModal({
                     <div className="import-conflict-card" key={conflict.id}>
                       <div className="import-conflict-meta">
                         <strong>{conflict.shipmentCode || 'Archived shipment'}</strong>
-                        <span>Archived</span>
+                        <span>{conflict.sourceSheet ? `Source Sheet: ${conflict.sourceSheet}` : 'Archived'}</span>
                       </div>
                       <p className="import-conflict-reason">{conflict.reason}</p>
                       <div className="import-conflict-actions">
@@ -250,7 +416,7 @@ export default function ImportShipmentModal({
                   <div className="import-conflict-card" key={conflict.id}>
                     <div className="import-conflict-meta">
                       <strong>{conflict.shipmentCode || 'Matched shipment'}</strong>
-                      <span>{conflict.label}</span>
+                      <span>{conflict.sourceSheet ? `${conflict.label} · Source Sheet: ${conflict.sourceSheet}` : conflict.label}</span>
                     </div>
                     <p className="import-conflict-reason">{conflict.reason}</p>
                     <div className="import-conflict-values">
@@ -287,7 +453,16 @@ export default function ImportShipmentModal({
             )}
 
             <div className="modal-actions">
-              <button className="ghost-button" onClick={() => { setPlan(null); setResolutions({}); setArchivedResolutions({}); }}>Choose another file</button>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => {
+                  resetReviewState();
+                  setError('');
+                }}
+              >
+                Change Sheet Selection
+              </button>
               <button
                 className="primary-button"
                 disabled={(plan.fieldConflicts || []).some((conflict) => !resolutions[conflict.id])}

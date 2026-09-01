@@ -14,7 +14,7 @@ const DB_FIELDS = new Set([
   'timeline_liquidation_tl','timeline_billing','timeline_closing','custom_fields'
 ]);
 
-const DATE_FIELDS = new Set([
+export const DATE_FIELDS = new Set([
   'pre_alert_shipping_documents','eta','dt_computation','ata','lodgement','assessed','paid','portal_submission','releasing_date',
   'liquidation_processor','liquidation_tl','endorsement_to_biller','received_folder','billed_date','dispatch',
   'validated_manifest_date','last_milestone_date'

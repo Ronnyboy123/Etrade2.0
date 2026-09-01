@@ -828,7 +828,9 @@ begin
 
       if v_before.archived_at is not null then
         if v_intent <> 'restore_update' then
-          raise exception 'Shipment % is archived. Re-open the import preview and choose Skip or Restore & Update.', v_code;
+          -- Safe default: an archived duplicate should not abort the rest of the import.
+          -- Only an explicit Restore & Update decision may reactivate it.
+          continue;
         end if;
         if v_expected_version is not null and coalesce(v_before.version, 1) <> v_expected_version then
           raise exception 'Shipment % changed after import review. Re-open the import preview before syncing.', v_code;

@@ -1,4 +1,5 @@
 import { applyAutomation } from './automation.js';
+import { DATE_FIELDS, normalizeDateValue } from './dataApi.js';
 
 export const AUTOMATED_FIELDS = [
   'current_stage',
@@ -203,6 +204,87 @@ for (const [field, def] of Object.entries(FIELD_DEFINITIONS)) {
   ALIASES[normalize(def.label)] = field;
 }
 
+export const IMPORT_SOURCE_SHEET_FIELD = '__relora_source_sheet';
+
+function sheetMatrixToRows(matrix = []) {
+  if (!Array.isArray(matrix) || matrix.length === 0) {
+    return { headers: [], rows: [] };
+  }
+
+  const width = Math.max(0, ...matrix.map((row) => (Array.isArray(row) ? row.length : 0)));
+  if (width === 0) return { headers: [], rows: [] };
+
+  const rawHeaders = Array.from({ length: width }, (_, index) => matrix[0]?.[index] ?? '');
+  const headers = rawHeaders.map((value, index) => {
+    const text = String(value ?? '').trim();
+    return text || `Unnamed Column ${index + 1}`;
+  });
+
+  const rows = matrix
+    .slice(1)
+    .filter((row) => Array.isArray(row) && row.some((value) => String(value ?? '').trim() !== ''))
+    .map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ''])));
+
+  return { headers, rows };
+}
+
+export function extractWorkbookSheets(workbook, sheetToMatrix) {
+  const names = Array.isArray(workbook?.SheetNames) ? workbook.SheetNames : [];
+  if (!names.length) return [];
+  if (typeof sheetToMatrix !== 'function') {
+    throw new Error('A worksheet reader is required.');
+  }
+
+  return names.map((name) => {
+    const worksheet = workbook?.Sheets?.[name];
+    const matrix = worksheet ? sheetToMatrix(worksheet, name) : [];
+    const parsed = sheetMatrixToRows(matrix);
+    return {
+      name,
+      headers: parsed.headers,
+      rows: parsed.rows,
+      rowCount: parsed.rows.length,
+      isEmpty: parsed.rows.length === 0
+    };
+  });
+}
+
+export function combineWorkbookSheets(sheets = [], selectedNames = []) {
+  const selected = new Set(selectedNames);
+  const chosenSheets = sheets.filter((sheet) => selected.has(sheet.name));
+  const headers = [];
+  const canonicalHeaderByKey = new Map();
+  const rows = [];
+  const sheetBreakdown = [];
+
+  for (const sheet of chosenSheets) {
+    for (const header of sheet.headers || []) {
+      const key = String(header ?? '').trim().toLowerCase();
+      if (canonicalHeaderByKey.has(key)) continue;
+      canonicalHeaderByKey.set(key, header);
+      headers.push(header);
+    }
+  }
+
+  for (const sheet of chosenSheets) {
+    const sheetRows = Array.isArray(sheet.rows) ? sheet.rows : [];
+    sheetBreakdown.push({ name: sheet.name, rowCount: sheetRows.length });
+
+    for (const row of sheetRows) {
+      const normalizedRow = {};
+      for (const header of sheet.headers || []) {
+        if (!Object.prototype.hasOwnProperty.call(row, header)) continue;
+        const key = String(header ?? '').trim().toLowerCase();
+        const canonicalHeader = canonicalHeaderByKey.get(key) || header;
+        normalizedRow[canonicalHeader] = row[header];
+      }
+      rows.push({ ...normalizedRow, [IMPORT_SOURCE_SHEET_FIELD]: sheet.name });
+    }
+  }
+
+  return { headers, rows, sheetBreakdown };
+}
+
 export function mapImportedHeaders(headers) {
   const usedCustom = new Set();
   const columns = headers.map((header) => {
@@ -342,6 +424,20 @@ function isBlankImportedValue(value) {
   return value === undefined || value === null || String(value).trim() === '';
 }
 
+function valuesEquivalent(field, serverValue, importedValue, row = {}) {
+  if (String(serverValue ?? '') === String(importedValue ?? '')) return true;
+
+  const shouldCompareAsDate = DATE_FIELDS.has(field)
+    || serverValue instanceof Date
+    || importedValue instanceof Date;
+
+  if (!shouldCompareAsDate) return false;
+
+  const serverDate = normalizeDateValue(serverValue, row);
+  const importedDate = normalizeDateValue(importedValue, row);
+  return Boolean(serverDate && importedDate && serverDate === importedDate);
+}
+
 function isWorkflowRegression(field, serverValue, importedValue) {
   if (field !== 'boc_status') return false;
   const serverRank = WORKFLOW_STATUS_RANK[String(serverValue ?? '').trim().toUpperCase()];
@@ -358,7 +454,8 @@ export function buildImportPlan({
   importedRows,
   headers,
   assignedTo = '',
-  importSnapshotAt = null
+  importSnapshotAt = null,
+  sheetBreakdown = []
 }) {
   const mapping = mapImportedHeaders(headers);
   const existingByKey = new Map();
@@ -377,6 +474,7 @@ export function buildImportPlan({
   const changes = [];
   const fieldConflicts = [];
   const archivedConflicts = [];
+  const rowTrace = [];
   let created = 0;
   let updated = 0;
   let duplicates = 0;
@@ -387,7 +485,12 @@ export function buildImportPlan({
   let archivedMatches = 0;
 
   importedRows.forEach((rawRow, index) => {
+    const sourceSheet = String(rawRow?.[IMPORT_SOURCE_SHEET_FIELD] ?? '').trim();
     const incoming = makeImportedRow(rawRow, mapping.columns, assignedTo, index);
+    const traceBase = {
+      sourceSheet,
+      shipmentCode: incoming.job_file_number || incoming.entry_no || incoming.house_awb_bl || incoming.master_awb_bl || ''
+    };
     const keys = shipmentMatchKeys(incoming);
 
     if (keys.length === 0) missingKey += 1;
@@ -395,6 +498,7 @@ export function buildImportPlan({
     const duplicateWithinFile = keys.some((key) => seenImportKeys.has(key));
     if (duplicateWithinFile) {
       duplicates += 1;
+      rowTrace.push({ ...traceBase, result: 'Duplicate in selected sheets' });
       return;
     }
     keys.forEach((key) => seenImportKeys.add(key));
@@ -407,7 +511,8 @@ export function buildImportPlan({
 
       if (assignedTo && oldRow.assigned_to && oldRow.assigned_to !== assignedTo) {
         conflicts += 1;
-        changes.push({ type: 'conflict', row: oldRow, incoming });
+        changes.push({ type: 'conflict', row: oldRow, incoming, sourceSheet });
+        rowTrace.push({ ...traceBase, result: 'Skipped - another employee' });
         return;
       }
 
@@ -416,7 +521,8 @@ export function buildImportPlan({
           id: `archived:${oldRow.id}`,
           shipmentId: oldRow.id,
           shipmentCode: oldRow.shipment_code || oldRow.job_file_number || '',
-          reason: 'Archived shipment already exists in Relora. Skip it, or explicitly Restore & Update it from this import.'
+          reason: 'Archived shipment already exists in Relora. Skip it, or explicitly Restore & Update it from this import.',
+          sourceSheet
         };
         archivedMatches += 1;
         archivedConflicts.push(archivedConflict);
@@ -426,8 +532,10 @@ export function buildImportPlan({
           incoming,
           archivedConflictId: archivedConflict.id,
           changedFields: [],
-          fieldConflicts: []
+          fieldConflicts: [],
+          sourceSheet
         });
+        rowTrace.push({ ...traceBase, result: 'Archived match' });
         return;
       }
 
@@ -442,7 +550,7 @@ export function buildImportPlan({
       for (const [field, value] of Object.entries(incoming)) {
         if (field === 'id' || field === 'assigned_to') continue;
         if (isBlankImportedValue(value)) continue;
-        if (String(oldRow[field] ?? '') === String(value)) continue;
+        if (valuesEquivalent(field, oldRow[field], value, { ...oldRow, ...incoming })) continue;
 
         const workflowRegression = isWorkflowRegression(field, oldRow[field], value);
         if (serverNewer || workflowRegression) {
@@ -456,7 +564,8 @@ export function buildImportPlan({
             importedValue: value,
             reason: workflowRegression
               ? 'Potential outdated workflow value. The imported status would move this shipment backward.'
-              : 'Relora changed after this file was last modified.'
+              : 'Relora changed after this file was last modified.',
+            sourceSheet
           };
           rowFieldConflicts.push(conflict);
           fieldConflicts.push(conflict);
@@ -491,7 +600,16 @@ export function buildImportPlan({
         row: automatedMerged,
         incoming,
         changedFields,
-        fieldConflicts: rowFieldConflicts
+        fieldConflicts: rowFieldConflicts,
+        sourceSheet
+      });
+      rowTrace.push({
+        ...traceBase,
+        result: rowFieldConflicts.length > 0
+          ? 'Needs review'
+          : changedFields.length > 0
+            ? 'Update'
+            : 'Unchanged'
       });
       return;
     }
@@ -510,7 +628,8 @@ export function buildImportPlan({
     createdRows.push(automatedCreatedRow);
     for (const key of shipmentMatchKeys(automatedCreatedRow)) existingByKey.set(key, automatedCreatedRow.id);
     created += 1;
-    changes.push({ type: 'create', row: automatedCreatedRow, changedFields: [], fieldConflicts: [] });
+    changes.push({ type: 'create', row: automatedCreatedRow, changedFields: [], fieldConflicts: [], sourceSheet });
+    rowTrace.push({ ...traceBase, result: 'New' });
   });
 
   return {
@@ -519,8 +638,10 @@ export function buildImportPlan({
     changes,
     fieldConflicts,
     archivedConflicts,
+    rowTrace,
     unresolvedConflicts: fieldConflicts.length,
     importSnapshotAt,
+    sheetBreakdown,
     summary: {
       total: importedRows.length,
       created,
@@ -568,7 +689,7 @@ function restoreArchivedChange(change) {
   for (const [field, value] of Object.entries(incoming)) {
     if (field === 'id') continue;
     if (isBlankImportedValue(value)) continue;
-    if (String(oldRow[field] ?? '') === String(value)) continue;
+    if (valuesEquivalent(field, oldRow[field], value, { ...oldRow, ...incoming })) continue;
     merged[field] = value;
     changedFields.push({ field, oldValue: oldRow[field] ?? '', newValue: value, reviewed: true });
   }

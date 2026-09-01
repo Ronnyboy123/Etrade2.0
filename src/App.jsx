@@ -361,6 +361,7 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
       await archiveShipments(ids);
       const archived = new Set(ids);
       setRows((old) => old.filter((row) => !archived.has(row.id)));
+      await refreshArchived();
       markSync('SAVE_SUCCESS');
     } catch (error) {
       if (navigator.onLine) markSync('SAVE_ERROR');

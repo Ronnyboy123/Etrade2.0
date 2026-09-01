@@ -1624,3 +1624,84 @@ body {
 .archived-select-column { width: 42px; min-width: 42px; text-align: center; }
 .archived-select-column input { width: 16px; height: 16px; cursor: pointer; accent-color: #0b7f86; }
 .archived-row-selected td { background: #eef7fb; }
+
+/* Relora v11.0: multi-sheet import selection and source tracing */
+.sheet-selection-panel {
+  margin: 0 20px 16px;
+  border: 1px solid #dce5ee;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.sheet-option-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+
+.sheet-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #d8e2ec;
+  border-radius: 8px;
+  background: #fbfdff;
+  cursor: pointer;
+}
+
+.sheet-option input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  accent-color: #2778b8;
+}
+
+.sheet-option span,
+.sheet-option strong,
+.sheet-option small {
+  display: block;
+  min-width: 0;
+}
+
+.sheet-option strong {
+  color: #173b64;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-option small {
+  margin-top: 2px;
+  color: #74879a;
+  font-size: 10px;
+}
+
+.sheet-option-all {
+  margin: 10px 12px 0;
+  background: #edf5fc;
+  border-color: #bfd5e8;
+}
+
+.sheet-option.empty {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.compact-import-table {
+  max-height: 190px;
+}
+
+.import-trace-wrap {
+  max-height: 240px;
+}
+
+@media (max-width: 900px) {
+  .sheet-option-list {
+    grid-template-columns: 1fr;
+  }
+}

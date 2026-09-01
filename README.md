@@ -1,4 +1,14 @@
-# Relora v10.7
+# Relora v11.0
+
+## v11.0 multi-sheet import
+- Excel workbooks can now import from multiple worksheets in one upload, including workbooks with 10 or more tabs.
+- Relora detects every worksheet and shows a sheet-selection step before import review.
+- **All Sheets** selects every non-empty worksheet, while individual sheets can be included or excluded.
+- Selected worksheets are combined into one import review while preserving the existing duplicate, archived-match, stale-value, ownership, and date-equivalence protections.
+- Imported rows keep their **Source Sheet** in the preview so operations users can trace which worksheet supplied each shipment.
+- Column order is preserved by first appearance across the selected sheets; equivalent headers with casing differences are normalized to the first-seen header.
+- Empty worksheets are shown but cannot be selected.
+- No Supabase migration is required for v11.0.
 
 ## v10.7 changes
 - Import review recognizes archived shipment identities and never treats them as new rows.
@@ -177,3 +187,17 @@ VITE_SUPABASE_PUBLISHABLE_KEY
 Then deploy from the GitHub-connected project and hard-refresh users (`Ctrl + Shift + R`).
 
 Recommended acceptance checks: email/password login with an admin-provided password, employee edit of Validated Manifest Date/date picker, employee edit across operational groups on an own shipment, employee Archive/Restore of an own shipment, blocked employee Archive of another declarant shipment, current month vs upcoming month totals, historical month switching, All Time management view, Select all results + Archive, realtime two-browser edits, conflict dialog, Activity History, Archive/Restore, and Admin-only permanent delete.
+
+## v10.8 archived-import stale-state fix
+
+- After an Archive action, Relora immediately refreshes the archived shipment cache used by Import Preview.
+- If an archived duplicate still reaches the server without an explicit Restore & Update choice, it is safely skipped instead of aborting the entire import batch.
+- Restore & Update remains explicit; archived shipments are never silently reactivated.
+
+## v10.9 import date-equivalence fix
+
+- Import Review now compares Excel Date objects and Relora date strings by calendar date instead of raw JavaScript representation.
+- The same date (for example, `2025-07-01` vs an Excel Date object for July 1, 2025) is treated as unchanged and no longer creates a false outdated-value warning.
+- This also applies to custom Excel date columns such as Delivery Date when XLSX identifies the cell as a date.
+- A genuinely different date is still protected by the stale-import review when Relora has newer data.
+- No Supabase migration is required for v10.9.
