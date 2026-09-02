@@ -9,6 +9,7 @@ import MonthSelector from './components/MonthSelector';
 import SyncStatus from './components/SyncStatus';
 import TeamWorkspaces from './components/TeamWorkspaces';
 import WorkspaceView from './components/WorkspaceView';
+import ShipmentDetailsDrawer from './components/ShipmentDetailsDrawer';
 import { applyAutomation } from './lib/automation.js';
 import { roleLabel } from './lib/auth.js';
 import { getSearchableColumns, resolveSmartSearch } from './lib/search.js';
@@ -31,7 +32,7 @@ import {
   loadShipments,
   loadVisibleProfiles,
   permanentlyDeleteShipments,
-  persistImportChanges,
+  persistImportGroups,
   restoreShipments,
   ShipmentConflictError,
   updateShipmentField
@@ -88,6 +89,7 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
   const [conflict, setConflict] = useState(null);
   const [conflictResolving, setConflictResolving] = useState(false);
   const [activityShipment, setActivityShipment] = useState(null);
+  const [detailShipment, setDetailShipment] = useState(null);
   const [activityRows, setActivityRows] = useState([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState('');
@@ -422,7 +424,7 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
       requireOnline();
       if (plan.unresolvedConflicts > 0) throw new Error('Review every outdated imported value before syncing.');
       markSync('SAVE_START');
-      await persistImportChanges(plan.changes, currentUser, { onProgress });
+      await persistImportGroups(plan.changes, currentUser, { onProgress });
       const [shipmentRows, archivedShipmentRows] = await Promise.all([
         loadShipments(),
         showArchived ? loadArchivedShipments() : Promise.resolve([])
@@ -492,6 +494,7 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
         onArchiveRows={handleArchiveRows}
         onEditingChange={handleEditingChange}
         onOpenActivity={showActivity ? openActivity : undefined}
+        onOpenDetails={setDetailShipment}
         onImportConfirmed={(plan, onProgress) => handleImport(plan, layoutKey, onProgress)}
       />
     );
@@ -607,6 +610,8 @@ function AuthenticatedApp({ currentUser, authUser, signOut }) {
           )}
         </main>
       )}
+
+      <ShipmentDetailsDrawer shipment={detailShipment} onClose={() => setDetailShipment(null)} />
 
       <ConflictDialog
         conflict={conflict}

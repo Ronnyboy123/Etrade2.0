@@ -1,5 +1,31 @@
-# Relora v11.3
+# Relora v12.0
 
+## Relora v12.0 — Shipment detail exact sync
+
+Relora v12.0 keeps **one operational shipment master** in `public.shipments` while preserving every meaningful repeated Excel row in the new `public.shipment_import_lines` child table. Dashboard counts, assignments, workflow stages, archives, and monthly reporting continue to count one shipment—not each SKU/material/container detail row.
+
+### What changed
+
+- Workbook parsing detects a credible shipment header row instead of assuming row 1 is the header. Section/template rows such as `NEW PRE-ALERTS` and `AIR SHIPMENTS` are kept as source context and are not imported as shipments.
+- Repeated Excel rows with the same strongest shipment identity are grouped into one shipment. Identity precedence remains Job File No. → Entry No. → House AWB / BL → Master AWB / BL fallback, with `TBA`, `TBD`, `N/A`, `NA`, `NONE`, and `-` ignored as identifiers.
+- Each imported shipment group carries a read-only detail set containing the original imported cells, source sheet, section, and Excel row number.
+- Re-importing a shipment group performs **exact sync** for that shipment's detail rows: new details are added, changed details are updated, and details absent from that shipment's latest selected import are removed. Shipments absent from the selected import are untouched.
+- Grouped import review shows shipment-group counts plus detail rows that will be added, changed, or removed before sync.
+- Large imports remain bounded: at most **25 shipment groups or 250 detail rows per database call**. A single shipment with more than 250 details is sent alone and is never split across requests.
+- The shipment grid includes a read-only **Details** action for viewing/searching imported Excel detail rows and optionally showing all imported columns.
+
+### Required Supabase migration
+
+**Deploy `relora-v12.0-migration.sql` before deploying the v12.0 frontend.** The migration creates `shipment_import_lines`, its read-only authenticated RLS policy, indexes/trigger, and the atomic `persist_import_group_batch(jsonb)` RPC. The migration does not rewrite existing shipment master rows, so the existing v11.3 frontend remains backward-readable while deployment is staged.
+
+Recommended deployment order:
+1. Confirm/backup the production Supabase project state.
+2. Apply `relora-v12.0-migration.sql`.
+3. Verify `shipment_import_lines` and `persist_import_group_batch(jsonb)` exist.
+4. Deploy the verified v12.0 frontend.
+5. Test a small known shipment group, then re-import it with one added/changed/removed detail before using the large production workbook.
+
+`.env.example` intentionally contains placeholders only. Keep the real `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local` for local development or in Netlify environment variables; do not commit real environment files.
 
 ## v11.3 — Large Import Stability
 

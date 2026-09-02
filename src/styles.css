@@ -1757,3 +1757,28 @@ body {
     justify-content: space-between;
   }
 }
+
+/* Relora v12.0 grouped shipment details */
+.import-group-list { display: grid; gap: 10px; }
+.import-group-card { border: 1px solid #d8e2ec; border-radius: 10px; padding: 12px 14px; background: #fbfdff; }
+.import-group-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.import-group-card-heading strong { color: #173b64; }
+.import-group-card-heading span { font-size: 11px; color: #56697d; background: #edf4fa; border-radius: 999px; padding: 4px 8px; }
+.import-group-card p { margin: 6px 0 10px; color: #667085; font-size: 12px; }
+.import-group-diff { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: #475467; }
+.import-group-diff strong { color: #173b64; }
+.shipment-details-backdrop { position: fixed; inset: 0; z-index: 1200; background: rgba(15, 23, 42, .38); display: flex; justify-content: flex-end; }
+.shipment-details-drawer { width: min(92vw, 1180px); height: 100%; background: #fff; box-shadow: -18px 0 45px rgba(15, 23, 42, .18); display: flex; flex-direction: column; overflow: hidden; }
+.shipment-details-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 20px; border-bottom: 1px solid #e4e7ec; }
+.shipment-details-header h3 { margin: 0; color: #173b64; }
+.shipment-details-header p { margin: 4px 0 0; color: #667085; font-size: 12px; }
+.shipment-details-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #eaecf0; }
+.shipment-details-toolbar input[type="text"], .shipment-details-toolbar > input:not([type]) { min-width: 260px; }
+.shipment-details-toolbar label, .shipment-details-toolbar span { font-size: 12px; color: #667085; }
+.shipment-details-state { padding: 28px 20px; color: #667085; }
+.shipment-details-state.error { color: #b42318; }
+.shipment-details-table-wrap { overflow: auto; flex: 1; }
+.shipment-details-table { border-collapse: separate; border-spacing: 0; min-width: 100%; width: max-content; font-size: 12px; }
+.shipment-details-table th, .shipment-details-table td { padding: 8px 10px; border-right: 1px solid #eaecf0; border-bottom: 1px solid #eaecf0; text-align: left; white-space: nowrap; max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
+.shipment-details-table th { position: sticky; top: 0; z-index: 1; background: #f8fafc; color: #344054; }
+@media (max-width: 720px) { .shipment-details-drawer { width: 100vw; } .shipment-details-toolbar { align-items: stretch; flex-direction: column; } .shipment-details-toolbar input { width: 100%; min-width: 0; } }

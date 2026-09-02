@@ -414,3 +414,141 @@ export async function persistImportChanges(changes, currentUser, options = {}) {
     options
   );
 }
+
+export function prepareImportGroupPayloads(changes) {
+  return (changes || [])
+    .filter((change) =>
+      change?.group &&
+      change?.row &&
+      !['conflict', 'skip', 'archived_match', 'needs_review', 'unchanged'].includes(change.type)
+    )
+    .map((change) => {
+      const shipment = serializeShipmentRow(change.row);
+      shipment._relora_import_intent = change.type;
+      if (['update', 'restore_update'].includes(change.type) && Number.isFinite(Number(change.row?.version))) {
+        shipment._relora_expected_version = Number(change.row.version);
+      }
+      return {
+        shipment,
+        details: (change.group.details || []).map((detail) => ({
+          line_key: detail.line_key,
+          source_sheet: detail.source_sheet || null,
+          source_row_number: Number(detail.source_row_number) || null,
+          source_section: detail.source_section || null,
+          raw_cells: detail.raw_cells || [],
+          normalized_fields: detail.normalized_fields || {}
+        }))
+      };
+    });
+}
+
+export function chunkImportGroups(groups, { maxGroups = 25, maxDetails = 250 } = {}) {
+  const clean = Array.isArray(groups) ? groups : [];
+  const groupLimit = Math.max(1, Math.floor(Number(maxGroups)) || 25);
+  const detailLimit = Math.max(1, Math.floor(Number(maxDetails)) || 250);
+  const chunks = [];
+  let current = [];
+  let currentDetails = 0;
+
+  for (const group of clean) {
+    const detailCount = Array.isArray(group?.details) ? group.details.length : 0;
+    const wouldExceedGroups = current.length >= groupLimit;
+    const wouldExceedDetails = current.length > 0 && currentDetails + detailCount > detailLimit;
+    if (wouldExceedGroups || wouldExceedDetails) {
+      chunks.push(current);
+      current = [];
+      currentDetails = 0;
+    }
+    current.push(group);
+    currentDetails += detailCount;
+    if (detailCount > detailLimit) {
+      chunks.push(current);
+      current = [];
+      currentDetails = 0;
+    }
+  }
+  if (current.length) chunks.push(current);
+  return chunks;
+}
+
+export async function persistImportGroupBatches(groups, sendBatch, options = {}) {
+  const batches = chunkImportGroups(groups, options);
+  const totalGroups = Array.isArray(groups) ? groups.length : 0;
+  const totalDetails = (groups || []).reduce((sum, group) => sum + (group?.details?.length || 0), 0);
+  const results = [];
+  let processedGroups = 0;
+  let processedDetails = 0;
+
+  for (let index = 0; index < batches.length; index += 1) {
+    const batch = batches[index];
+    const batchDetails = batch.reduce((sum, group) => sum + (group?.details?.length || 0), 0);
+    try {
+      const batchRows = await sendBatch(batch, {
+        batch: index + 1,
+        batches: batches.length,
+        processedGroups,
+        totalGroups,
+        processedDetails,
+        totalDetails
+      });
+      if (Array.isArray(batchRows)) results.push(...batchRows);
+    } catch (error) {
+      const message = error?.message || 'Unknown database error.';
+      const wrapped = new Error(
+        `Import stopped at batch ${index + 1} of ${batches.length} after ${processedGroups} of ${totalGroups} shipment groups and ${processedDetails} of ${totalDetails} detail rows were synced. ${message}`
+      );
+      wrapped.cause = error;
+      throw wrapped;
+    }
+
+    processedGroups += batch.length;
+    processedDetails += batchDetails;
+    options.onProgress?.({
+      batch: index + 1,
+      batches: batches.length,
+      processedGroups,
+      totalGroups,
+      processedDetails,
+      totalDetails
+    });
+
+    if (options.yieldBetweenBatches !== false && index < batches.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  return results;
+}
+
+export async function persistImportGroups(changes, currentUser, options = {}) {
+  const client = await requireSupabase();
+  const payloads = prepareImportGroupPayloads(changes);
+  if (!payloads.length) return [];
+
+  return persistImportGroupBatches(
+    payloads,
+    async (batch) => {
+      const { data, error } = await client.rpc('persist_import_group_batch', { p_groups: batch });
+      if (error) {
+        if (error.code === '23505' || /duplicate key value/i.test(error.message || '')) {
+          throw new Error('A shipment with the same unique shipment code already exists. Refresh the data and retry the import.');
+        }
+        throw error;
+      }
+      return (data || []).map((item) => flattenShipmentRow(item?.shipment || item));
+    },
+    options
+  );
+}
+
+export async function loadShipmentImportLines(shipmentId) {
+  const client = await requireSupabase();
+  if (!shipmentId) return [];
+  const { data, error } = await client
+    .from('shipment_import_lines')
+    .select('id,shipment_id,line_key,source_sheet,source_row_number,source_section,raw_cells,normalized_fields,created_at,updated_at')
+    .eq('shipment_id', shipmentId)
+    .order('source_sheet', { ascending: true })
+    .order('source_row_number', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}

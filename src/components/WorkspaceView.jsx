@@ -35,6 +35,7 @@ export default function WorkspaceView({
   onDeleteRows,
   onArchiveRows,
   onEditingChange,
+  onOpenDetails,
   onOpenActivity,
   suppressCreateActions = false,
   selectionScopeKey = ''
@@ -160,6 +161,7 @@ export default function WorkspaceView({
         onDisplayedIdsChange={setDisplayedIds}
         onRowChanged={onRowChanged}
         onEditingChange={onEditingChange}
+        onOpenDetails={onOpenDetails}
         onOpenActivity={onOpenActivity}
       />
 
@@ -182,7 +184,7 @@ export default function WorkspaceView({
               };
             };
 
-            const finalRows = plan.finalRows.map(normalizeAssignedRow);
+            const finalRows = (plan.finalRows || []).map(normalizeAssignedRow);
             const changes = plan.changes.map((change) => ({
               ...change,
               row: change.row ? normalizeAssignedRow(change.row) : change.row,

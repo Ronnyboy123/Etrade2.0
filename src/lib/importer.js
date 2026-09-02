@@ -810,3 +810,169 @@ export function resolveImportReview(plan, resolutions = {}, archivedResolutions 
 export function resolveImportConflicts(plan, resolutions = {}) {
   return resolveImportReview(plan, resolutions, {});
 }
+
+function canonicalDetailValue(detail) {
+  return JSON.stringify([detail?.raw_cells || [], detail?.normalized_fields || {}]);
+}
+
+function compareDetailSets(existing = [], next = []) {
+  const oldByKey = new Map((existing || []).map((line) => [line.line_key, line]));
+  const nextByKey = new Map((next || []).map((line) => [line.line_key, line]));
+  const added = (next || []).filter((line) => !oldByKey.has(line.line_key)).length;
+  const removed = (existing || []).filter((line) => !nextByKey.has(line.line_key)).length;
+  const changed = (next || []).filter((line) => {
+    const old = oldByKey.get(line.line_key);
+    return old && canonicalDetailValue(old) !== canonicalDetailValue(line);
+  }).length;
+  return { added, changed, removed, existingCount: (existing || []).length, nextCount: (next || []).length };
+}
+
+function groupedConflictId(groupKey, field) { return `${groupKey}:field:${field}`; }
+
+function planGroupedMasterChange({ oldRow, incoming, importSnapshotTime, sourceSheets = [] }) {
+  const merged = { ...(oldRow || {}) };
+  const changedFields = [];
+  const fieldConflicts = [];
+  const serverUpdatedTime = parseTimestamp(oldRow?.updated_at);
+  const serverNewer = importSnapshotTime !== null && serverUpdatedTime !== null && serverUpdatedTime > importSnapshotTime;
+
+  for (const [field, value] of Object.entries(incoming || {})) {
+    if (field === 'id' || field === 'assigned_to') continue;
+    if (isBlankImportedValue(value)) continue;
+    if (valuesEquivalent(field, oldRow?.[field], value, { ...(oldRow || {}), ...(incoming || {}) })) continue;
+    const workflowRegression = isWorkflowRegression(field, oldRow?.[field], value);
+    if (oldRow && (serverNewer || workflowRegression)) {
+      fieldConflicts.push({
+        id: groupedConflictId(oldRow.id || 'shipment', field), shipmentId: oldRow.id,
+        shipmentCode: oldRow.shipment_code || oldRow.job_file_number || '', field,
+        label: FIELD_DEFINITIONS[field]?.label || field,
+        serverValue: oldRow[field] ?? '', importedValue: value,
+        reason: workflowRegression ? 'Potential outdated workflow value. The imported status would move this shipment backward.' : 'Relora changed after this file was last modified.',
+        sourceSheet: sourceSheets.join(', ')
+      });
+      continue;
+    }
+    merged[field] = value;
+    changedFields.push({ field, oldValue: oldRow?.[field] ?? '', newValue: value });
+  }
+  if (incoming?.assigned_to) merged.assigned_to = incoming.assigned_to;
+  if (incoming?.customs_declarant && !merged.customs_declarant) merged.customs_declarant = incoming.customs_declarant;
+  return { merged: applyAutomation(merged), changedFields, fieldConflicts };
+}
+
+export function buildGroupedImportPlan({
+  existingRows = [], archivedRows = [], groups = [], importSnapshotAt = null,
+  existingDetailsByShipmentId = new Map(), sheetBreakdown = []
+}) {
+  const importSnapshotTime = parseTimestamp(importSnapshotAt);
+  const existingByKey = new Map();
+  const rowsById = new Map();
+  for (const row of [...(existingRows || []), ...(archivedRows || [])]) {
+    if (!row?.id || rowsById.has(row.id)) continue;
+    rowsById.set(row.id, row);
+    for (const key of shipmentMatchKeys(row)) if (!existingByKey.has(key)) existingByKey.set(key, row.id);
+  }
+
+  const changes = [], fieldConflicts = [], masterConflicts = [], archivedConflicts = [], rowTrace = [];
+  let created = 0, safeUpdates = 0, unchanged = 0, assignmentConflicts = 0, archivedMatches = 0, detailRows = 0;
+
+  for (const group of groups || []) {
+    detailRows += group?.details?.length || 0;
+    const existingId = existingByKey.get(group?.groupKey);
+    const oldRow = existingId ? rowsById.get(existingId) : null;
+    const groupMasterConflicts = (group?.masterConflicts || []).map((conflict) => ({
+      ...conflict, id: conflict.id || `${group.groupKey}:master:${conflict.field}`, groupKey: group.groupKey,
+      shipmentId: oldRow?.id || null, shipmentCode: oldRow?.shipment_code || group.shipmentCodeHint || '', sourceSheets: group.sourceSheets || []
+    }));
+    masterConflicts.push(...groupMasterConflicts);
+    const details = group?.details || [];
+    const detailDiff = compareDetailSets(oldRow?.id ? (existingDetailsByShipmentId.get(oldRow.id) || []) : [], details);
+    const traceForGroup = (result) => details.length ? details.map((detail) => ({
+      sourceSheet: detail.source_sheet || group.sourceSheets?.[0] || '', sourceRowNumber: detail.source_row_number || null,
+      sourceSection: detail.source_section || '', shipmentCode: oldRow?.shipment_code || group.shipmentCodeHint || '', result
+    })) : [{ sourceSheet: group.sourceSheets?.[0] || '', shipmentCode: oldRow?.shipment_code || group.shipmentCodeHint || '', result }];
+
+    if (oldRow?.archived_at) {
+      const archivedConflict = {
+        id: `archived:${oldRow.id}`, shipmentId: oldRow.id, shipmentCode: oldRow.shipment_code || group.shipmentCodeHint || '',
+        reason: 'Archived shipment already exists in Relora. Skip it, or explicitly Restore & Update it from this import.',
+        sourceSheet: (group.sourceSheets || []).join(', '), groupKey: group.groupKey
+      };
+      archivedMatches += 1; archivedConflicts.push(archivedConflict);
+      changes.push({ type: 'archived_match', row: oldRow, incoming: group.masterRow, group, changedFields: [], fieldConflicts: [], detailDiff, archivedConflictId: archivedConflict.id, sourceSheets: group.sourceSheets || [] });
+      rowTrace.push(...traceForGroup('Detail row - archived match'));
+      continue;
+    }
+
+    if (oldRow) {
+      if (group.masterRow?.assigned_to && oldRow.assigned_to && oldRow.assigned_to !== group.masterRow.assigned_to) {
+        assignmentConflicts += 1;
+        changes.push({ type: 'conflict', row: oldRow, incoming: group.masterRow, group, changedFields: [], fieldConflicts: [], detailDiff, sourceSheets: group.sourceSheets || [] });
+        rowTrace.push(...traceForGroup('Skipped - another employee'));
+        continue;
+      }
+      const planned = planGroupedMasterChange({ oldRow, incoming: group.masterRow, importSnapshotTime, sourceSheets: group.sourceSheets || [] });
+      fieldConflicts.push(...planned.fieldConflicts);
+      const needsReview = groupMasterConflicts.length > 0 || planned.fieldConflicts.length > 0;
+      const hasDetailChanges = detailDiff.added > 0 || detailDiff.changed > 0 || detailDiff.removed > 0;
+      if (planned.changedFields.length > 0 || hasDetailChanges) safeUpdates += 1;
+      else if (!needsReview) unchanged += 1;
+      const plannedType = needsReview ? 'needs_review' : (planned.changedFields.length > 0 || hasDetailChanges ? 'update' : 'unchanged');
+      changes.push({ type: plannedType, intendedType: 'update', row: planned.merged, incoming: group.masterRow, group, changedFields: planned.changedFields, fieldConflicts: planned.fieldConflicts, masterConflicts: groupMasterConflicts, detailDiff, sourceSheets: group.sourceSheets || [] });
+      rowTrace.push(...traceForGroup(needsReview ? 'Detail row - needs review' : 'Detail row'));
+      continue;
+    }
+
+    const createdRow = applyAutomation({ current_stage: 'PRE-ARRIVAL', completion: 0, next_action: '', overall_status: 'ON TRACK', days_open: 0, last_milestone_date: '', delay_action_remarks: '', ...group.masterRow });
+    created += 1;
+    const needsReview = groupMasterConflicts.length > 0;
+    changes.push({ type: needsReview ? 'needs_review' : 'create', intendedType: 'create', row: createdRow, incoming: group.masterRow, group, changedFields: [], fieldConflicts: [], masterConflicts: groupMasterConflicts, detailDiff, sourceSheets: group.sourceSheets || [] });
+    rowTrace.push(...traceForGroup(needsReview ? 'Detail row - needs review' : 'Detail row'));
+  }
+
+  return {
+    changes, fieldConflicts, masterConflicts, archivedConflicts, rowTrace, importSnapshotAt, sheetBreakdown,
+    unresolvedConflicts: fieldConflicts.length + masterConflicts.length,
+    summary: { total: groups.length, shipmentGroups: groups.length, detailRows, created, updated: safeUpdates, safeUpdates, reviewConflicts: fieldConflicts.length + masterConflicts.length, archivedMatches, unchanged, duplicates: 0, missingKey: 0, conflicts: assignmentConflicts, assignmentConflicts }
+  };
+}
+
+function applyGroupedFieldResolutions(change, resolutions = {}) {
+  if (!change?.row) return change;
+  const row = { ...change.row };
+  const changedFields = [...(change.changedFields || [])];
+  for (const conflict of change.fieldConflicts || []) {
+    if (resolutions[conflict.id] !== 'import') continue;
+    row[conflict.field] = conflict.importedValue;
+    changedFields.push({ field: conflict.field, oldValue: conflict.serverValue, newValue: conflict.importedValue, reviewed: true });
+  }
+  for (const conflict of change.masterConflicts || []) {
+    const choice = resolutions[conflict.id];
+    if (!choice) continue;
+    const index = choice === 'first' ? 0 : Number(String(choice).replace(/^value:/, ''));
+    const selected = conflict.values?.[Number.isFinite(index) ? index : 0];
+    if (selected !== undefined) row[conflict.field] = selected;
+  }
+  return { ...change, row: applyAutomation(row), changedFields };
+}
+
+export function resolveGroupedImportReview(plan, resolutions = {}, archivedResolutions = {}) {
+  const changes = (plan.changes || []).map((original) => {
+    let change = applyGroupedFieldResolutions(original, resolutions);
+    if (change.type === 'archived_match') {
+      const choice = archivedResolutions[change.archivedConflictId] || 'skip';
+      if (choice === 'restore_update') change = restoreArchivedChange(change);
+      else change = { ...change, type: 'skip' };
+      return change;
+    }
+    if (change.type === 'needs_review') {
+      const fieldDone = (change.fieldConflicts || []).every((conflict) => ['server', 'import'].includes(resolutions[conflict.id]));
+      const masterDone = (change.masterConflicts || []).every((conflict) => Boolean(resolutions[conflict.id]));
+      if (fieldDone && masterDone) change = { ...change, type: change.intendedType || 'update' };
+    }
+    return change;
+  });
+  const unresolvedFieldConflicts = (plan.fieldConflicts || []).filter((conflict) => !['server', 'import'].includes(resolutions[conflict.id])).length;
+  const unresolvedMasterConflicts = (plan.masterConflicts || []).filter((conflict) => !resolutions[conflict.id]).length;
+  return { ...plan, changes, finalRows: changes.map((change) => change.row).filter(Boolean), resolutions: { ...resolutions }, archivedResolutions: { ...archivedResolutions }, unresolvedConflicts: unresolvedFieldConflicts + unresolvedMasterConflicts };
+}

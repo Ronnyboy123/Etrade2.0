@@ -42,5 +42,5 @@ test('v10.4 removes obsolete recovery-only files and documents admin-provisioned
 
 test('package version identifies current Relora v11.3', () => {
   const pkg = JSON.parse(fs.readFileSync(packageUrl, 'utf8'));
-  assert.equal(pkg.version, '1.1.3');
+  assert.equal(pkg.version, '1.2.0');
 });

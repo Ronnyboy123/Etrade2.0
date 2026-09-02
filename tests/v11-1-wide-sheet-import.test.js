@@ -54,7 +54,7 @@ test('import modal passes the bounded range to SheetJS instead of trusting works
   assert.match(source, /range:\s*worksheetImportRange\(worksheet\)/);
 });
 
-test('v11.3 package version is 1.1.3', () => {
+test('v11.3 package version is 1.2.0', () => {
   const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(pkg.version, '1.1.3');
+  assert.equal(pkg.version, '1.2.0');
 });

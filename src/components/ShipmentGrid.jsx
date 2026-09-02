@@ -132,6 +132,7 @@ export default function ShipmentGrid({
   onDisplayedIdsChange,
   onRowChanged,
   onEditingChange,
+  onOpenDetails,
   onOpenActivity
 }) {
   const gridApiRef = useRef(null);
@@ -199,6 +200,26 @@ export default function ShipmentGrid({
             ariaLabel={`Select shipment ${params.data.job_file_number || params.data.id}`}
             onChange={() => setSelectedIds(toggleSelectedId(selectedIds, params.data.id))}
           />
+        )
+      });
+    }
+
+    if (onOpenDetails) {
+      leading.push({
+        colId: 'detailsAction',
+        headerName: 'Details',
+        editable: false,
+        sortable: false,
+        filter: false,
+        resizable: false,
+        pinned: 'left',
+        lockPinned: true,
+        suppressMovable: true,
+        width: 88,
+        minWidth: 88,
+        maxWidth: 88,
+        cellRenderer: (params) => (
+          <button className="grid-history-button" onClick={() => onOpenDetails(params.data)}>Details</button>
         )
       });
     }
