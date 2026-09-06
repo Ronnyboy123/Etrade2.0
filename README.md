@@ -1,4 +1,12 @@
-# Relora v12.0
+# Relora v12.1
+
+## Relora v12.1 — Master/detail classification fix
+
+Relora v12.1 fixes a false **Review Potential Outdated Values** warning in grouped Excel imports. Unknown/custom workbook columns such as Forwarder, Status, Container, Invoice, PO, SKU/material, quantity, and other workbook-only values are preserved in Shipment Details and no longer participate in shipment-master conflict detection.
+
+Only recognized Relora master fields can create a mixed-master review warning. Genuine conflicts such as the same shipment carrying two different Customer values remain protected and still require review.
+
+No new Supabase migration is required for v12.1. If the v12.0 child-detail schema has not been installed yet, deploy `relora-v12.0-migration.sql` before deploying the v12.1 frontend.
 
 ## Relora v12.0 — Shipment detail exact sync
 

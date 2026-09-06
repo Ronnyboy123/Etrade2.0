@@ -83,12 +83,27 @@ test('placeholder identifiers and template-only rows do not create shipment grou
   assert.equal(groups.length, 0);
 });
 
-test('mixed nonblank master values raise a review warning while keeping first source value', () => {
+test('unknown/custom Excel columns stay in details and do not create mixed master warnings', () => {
   const groups = groupImportedShipmentRows([
-    { raw: { 'HOUSE AWB / BL NO.': 'HBL-3', FORWARDER: 'EXPEDITORS', MATERIAL: 'A' }, sourceSheet: 'INCOMING', sourceRowNumber: 3, sourceSection: '' },
-    { raw: { 'HOUSE AWB / BL NO.': 'HBL-3', FORWARDER: 'DHL GLOBAL', MATERIAL: 'B' }, sourceSheet: 'INCOMING', sourceRowNumber: 4, sourceSection: '' }
-  ], ['HOUSE AWB / BL NO.', 'FORWARDER', 'MATERIAL']);
-  assert.equal(groups[0].masterRow.custom__forwarder, 'EXPEDITORS');
+    { raw: { 'HOUSE AWB / BL NO.': 'HBL-3', FORWARDER: 'EXPEDITORS', STATUS: 'AWAITS CI', MATERIAL: 'A' }, sourceSheet: 'INCOMING', sourceRowNumber: 3, sourceSection: '' },
+    { raw: { 'HOUSE AWB / BL NO.': 'HBL-3', FORWARDER: 'DHL GLOBAL', STATUS: 'FOR COMPLETE', MATERIAL: 'B' }, sourceSheet: 'INCOMING', sourceRowNumber: 4, sourceSection: '' }
+  ], ['HOUSE AWB / BL NO.', 'FORWARDER', 'STATUS', 'MATERIAL']);
+  assert.equal(groups[0].masterRow.house_awb_bl, 'HBL-3');
+  assert.equal(groups[0].masterRow.custom__forwarder, undefined);
+  assert.equal(groups[0].masterRow.custom__status, undefined);
+  assert.equal(groups[0].masterConflicts.length, 0);
+  assert.equal(groups[0].details.length, 2);
+  assert.equal(groups[0].details[0].raw_cells.find((cell) => cell.header === 'FORWARDER').value, 'EXPEDITORS');
+  assert.equal(groups[0].details[1].raw_cells.find((cell) => cell.header === 'STATUS').value, 'FOR COMPLETE');
+});
+
+test('mixed values in a recognized Relora master field still require review', () => {
+  const groups = groupImportedShipmentRows([
+    { raw: { 'HOUSE AWB / BL NO.': 'HBL-4', CUSTOMER: 'Customer A', MATERIAL: 'A' }, sourceSheet: 'INCOMING', sourceRowNumber: 5, sourceSection: '' },
+    { raw: { 'HOUSE AWB / BL NO.': 'HBL-4', CUSTOMER: 'Customer B', MATERIAL: 'B' }, sourceSheet: 'INCOMING', sourceRowNumber: 6, sourceSection: '' }
+  ], ['HOUSE AWB / BL NO.', 'CUSTOMER', 'MATERIAL']);
+  assert.equal(groups[0].masterRow.customer, 'Customer A');
   assert.equal(groups[0].masterConflicts.length, 1);
-  assert.deepEqual(groups[0].masterConflicts[0].values, ['EXPEDITORS', 'DHL GLOBAL']);
+  assert.equal(groups[0].masterConflicts[0].field, 'customer');
+  assert.deepEqual(groups[0].masterConflicts[0].values, ['Customer A', 'Customer B']);
 });

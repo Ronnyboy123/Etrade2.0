@@ -97,6 +97,15 @@ const DETAIL_ONLY_FIELDS = new Set([
   'description', 'custom__qty', 'custom__quantity', 'custom__uom', 'custom__unit'
 ]);
 
+const GENERATED_MASTER_FIELDS = new Set(['assigned_to', 'customs_declarant']);
+
+function isMasterField(field, mapping) {
+  if (GENERATED_MASTER_FIELDS.has(field)) return true;
+  if (DETAIL_ONLY_FIELDS.has(field)) return false;
+  const column = (mapping.columns || []).find((candidate) => candidate.field === field);
+  return Boolean(column && !column.isCustom);
+}
+
 function isBlank(value) { return value === undefined || value === null || String(value).trim() === ''; }
 function normalizeDetailValue(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
@@ -190,7 +199,7 @@ export function groupImportedShipmentRows(sourceRows = [], headers = [], assigne
     const group = groupsByKey.get(groupKey);
     if (sourceRow?.sourceSheet && !group.sourceSheets.includes(sourceRow.sourceSheet)) group.sourceSheets.push(sourceRow.sourceSheet);
     for (const [field, value] of Object.entries(mapped)) {
-      if (DETAIL_ONLY_FIELDS.has(field) || isBlank(value)) continue;
+      if (!isMasterField(field, mapping) || isBlank(value)) continue;
       const current = group.masterRow[field];
       if (isBlank(current)) { group.masterRow[field] = value; continue; }
       if (normalizeDetailValue(current) === normalizeDetailValue(value)) continue;

@@ -38,7 +38,7 @@ test('migration does not rewrite or delete existing shipment masters', () => {
   assert.doesNotMatch(sql, /update\s+public\.shipments\s+set\s+shipment_code/i);
 });
 
-test('Relora v12.0 package version is 1.2.0', () => {
+test('Relora v12.1 package version is 1.2.1', () => {
   const pkg = JSON.parse(read('../package.json'));
-  assert.equal(pkg.version, '1.2.0');
+  assert.equal(pkg.version, '1.2.1');
 });
